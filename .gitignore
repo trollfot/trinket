@@ -1,0 +1,32 @@
+# This is the repository-wide ignore file. Suffixes below are ignored
+# i.e. committing not allowed.
+
+# archives
+*.tar
+*.tar.gz
+*.tar.bz2
+*.zip
+
+# editors
+*.swp
+*.elc
+*.el
+*~
+*\#*\#
+
+# python
+*.pyc
+*.pyo
+*.bdf
+*.bak
+build/
+dist/
+
+
+# miscellaneous
+*.orig
+*.ori
+*.old
+*.svn
+*.rej
+*.egg-info
