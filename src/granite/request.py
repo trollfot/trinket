@@ -21,9 +21,10 @@ class Request(dict):
     __slots__ = (
         'app', '_url', 'path', 'query_string', '_query', 'upgrade_protocol',
         'method', 'body', 'headers', 'route', '_cookies', '_form', '_files',
+        'stream',
     )
 
-    def __init__(self, method='GET', url=b'/', body=b'', headers=None):
+    def __init__(self, url, method='GET', body=b'', headers=None, stream=None):
         self.method = method
         if headers is None:
             self.headers = {}
@@ -33,6 +34,7 @@ class Request(dict):
         self._form = None
         self._files = None
         self.url = url
+        self.stream = stream
 
     @property
     def url(self):

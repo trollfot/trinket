@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import signal
-from curio import run, spawn, socket, ssl, tcp_server, current_task
+from curio import run, spawn, socket, ssl, tcp_server, run_in_thread
 from curio import SignalQueue, Event, CancelledError, TaskGroup
 from collections import namedtuple, defaultdict
 from autoroutes import Routes
@@ -11,73 +11,39 @@ from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
 
-from pycohttpparser.api import Parser as HTTPParser
-
-
-
-class ConnectionManager:
-
-    max_head_size = 8**5  # 4096*8
-
-    def __init__(self, app, client):
-        self.client = client
-        self.parser = HttpRequestParser(self)
-        self.complete = False
-        self.request = None
-        
-    async def receive(self):
-
-        data = await self.client.recv(self.max_head_size)
-        # Data should contain the entirety of the headers.
-        try:
-            self.parser.feed_data(data)
-            if self.complete:
-                return self.request
-        except HttpParserError:
-            return HttpError(
-                HTTPStatus.BAD_REQUEST,
-                message=b'Unparsable request')
-
-    def on_message_begin(self):
-        self.request = Request()
-
-    def on_header(self, name: bytes, value: bytes):
-        value = value.decode()
-        if value:
-            name = name.decode().upper()
-            if name in self.request.headers:
-                self.request.headers[name] += ', {}'.format(value)
-            else:
-                self.request.headers[name] = value
-
-    def on_headers_complete(self):
-        self.request.method = self.parser.get_method().decode().upper()
-
-    def on_body(self, body: bytes):
-        self.request.body += body
-
-    def on_url(self, url: bytes):
-        self.request.url = url
-
-    def on_message_complete(self):
-        self.complete = True
-
+from pycohttpparser.api import Parser as HTTPParser, ParseError
 
 
 async def http_handler(app, client):
 
-    connection = ConnectionManager(app, client)
+    parser = HTTPParser()
+    max_head_size = 8**4
+
     async with client:
         while True:
-            try:
-                request = await connection.receive()
-                if isinstance(request, HttpError):
-                    await client.send(bytes(request))
-                else:
-                    response = await app(request)
-                    await client.send(bytes(response))
-            except (ConnectionResetError, BrokenPipeError):
+            data = await client.recv(max_head_size)
+            if not data:
                 break
+            try:
+                parsed = parser.parse_request(memoryview(data))
+            except:
+                await client.sendall(bytes(
+                    HttpError(
+                        HTTPStatus.BAD_REQUEST,
+                        message=b'Unparsable request')))
+
+            headers = {}
+            for name, value in parsed.headers:
+                headers[name.tobytes().decode()] = value.tobytes().decode()
+            request = Request(
+                parsed.path.tobytes(),
+                parsed.method.tobytes().decode().upper(),
+                headers=headers,
+                body=data[parsed.consumed:],
+                stream=client.as_stream())
+
+            response = await app(request)
+            await client.sendall(bytes(response))
 
 
 async def pebble_server(app, address):
@@ -98,6 +64,57 @@ async def pebble_server(app, address):
                 client, _ = await sock.accept()
                 await spawn(http_handler, app, client, daemon=True)
 
+
+
+
+
+class RequestHandler:
+
+    def __init__(self, app):
+        self.app = app
+        self.parser = HTTPParser()
+        self.max_head_size = 8**5
+
+    def make_request(self, data):
+        try:
+            parsed = self.parser.parse_request(memoryview(data))
+        except ParseError:
+            return HttpError(
+                HTTPStatus.BAD_REQUEST,
+                message=b'Unparsable request')
+
+        if parsed:
+            headers = {}
+            for name, value in parsed.headers:
+                headers[name.tobytes().decode()] = value.tobytes().decode()
+                
+            request = Request(
+                parsed.path.tobytes(),
+                parsed.method.tobytes().decode().upper(),
+                headers=headers,
+                body=data[parsed.consumed:])
+            return request
+
+    async def http_cycle(self, client):
+        data = await client.recv(self.max_head_size)
+        if not data:
+            return
+        request = await run_in_thread(self.make_request, data)
+        if request is not None:
+            if isinstance(request, HttpError):
+                await client.sendall(bytes(request))
+            else:
+                response = await self.app(request)
+                await client.sendall(bytes(response))
+
+    async def __call__(self, client, addr):
+        async with client:
+            while True:
+                try:
+                    await self.http_cycle(client)
+                except ConnectionResetError:
+                    break
+                
 
 Route = namedtuple('Route', ['payload', 'vars'])
             
@@ -134,4 +151,6 @@ class Granite:
         return response
 
     def serve(self, host='127.0.0.1', port=5000):
-         run(pebble_server(self, (host, port)))
+         #run(pebble_server(self, (host, port)))
+        handler = RequestHandler(self)
+        run(tcp_server(host, port, handler))
