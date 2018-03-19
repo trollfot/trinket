@@ -11,75 +11,65 @@ from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
 from functools import partial
-
 import httpparser
 
 
-
-class Receiver:
+class Parser:
 
     def __init__(self):
         self.parser = httpparser.Request(self)
+        self.request = None
+        self.complete = False
 
     def on_header(self, name, value):
-        pass
-
-    def on_headers(self, headers):
-        pass
+        value = value.decode()
+        if value:
+            name = name.decode().upper()
+            if name in self.request.headers:
+                self.request.headers[name] += ', {}'.format(value)
+            else:
+                self.request.headers[name] = value
 
     def on_uri(self, uri):
-        pass
+        self.request.url = uri
 
     def on_body(self, body):
-        pass
+        self.request.body += body
 
     def on_complete(self):
-        pass
+        self.request.keep_alive = self.parser.should_keep_alive()
+        self.complete = True
 
     def data_received(self, data):
+        if self.request is None:
+            self.request = Request()
         self.parser.parse(data)
-
-
 
 
 class RequestHandler:
 
     def __init__(self, app):
         self.app = app
-        self.max_head_size = 8**5
 
     async def receive(self, client):
-        p = HttpParser()
+        parser = Parser()
         while True:
             data = await client.recv(4096)
             if not data:
                 break
-
-            recved = len(data)
-            nparsed = p.execute(data, recved)
-            assert nparsed == recved
-
-            if p.is_message_begin():
-                client._socket.settimeout(None)
             
-            if p.is_headers_complete():
-                request = Request(
-                    p.get_url().encode(),
-                    method=p.get_method(),
-                    headers=p.get_headers())
-
-            if p.is_partial_body():
-                request.body += p.recv_body()
-
-            if p.is_message_complete():
-                yield request
-                p = HttpParser()
+            parser.data_received(data)
+            if parser.complete:
+                yield parser.request
+                parser.request = None
+                parser.complete = False
 
     async def __call__(self, client, addr):
         try:
             async with client:
                 client._socket.settimeout(10.0)
                 try:
+                    keep_alive = True
                     async for request in self.receive(client):
                         if request is None:
                             break 
@@ -88,7 +78,11 @@ class RequestHandler:
                         else:
                             response = await self.app(request)
                             await client.sendall(bytes(response))
+                            keep_alive = request.keep_alive
+                        if keep_alive:
                             client._socket.settimeout(10.0)
+                        else:
+                            break
                 except (ConnectionResetError, BrokenPipeError):
                     pass
         except socket.timeout:
