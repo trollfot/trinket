@@ -2,7 +2,7 @@
 
 import signal
 from curio import run, spawn, socket, ssl, tcp_server, run_in_thread
-from curio import SignalQueue, Event, CancelledError, TaskGroup
+from curio import Queue, SignalQueue, Event, CancelledError, TaskGroup
 from collections import namedtuple, defaultdict
 from autoroutes import Routes
 from httptools import (
@@ -10,60 +10,34 @@ from httptools import (
 from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
+from functools import partial
 
-from pycohttpparser.api import Parser as HTTPParser, ParseError
-
-
-async def http_handler(app, client):
-
-    parser = HTTPParser()
-    max_head_size = 8**4
-
-    async with client:
-        while True:
-            data = await client.recv(max_head_size)
-            if not data:
-                break
-            try:
-                parsed = parser.parse_request(memoryview(data))
-            except:
-                await client.sendall(bytes(
-                    HttpError(
-                        HTTPStatus.BAD_REQUEST,
-                        message=b'Unparsable request')))
-
-            headers = {}
-            for name, value in parsed.headers:
-                headers[name.tobytes().decode()] = value.tobytes().decode()
-            request = Request(
-                parsed.path.tobytes(),
-                parsed.method.tobytes().decode().upper(),
-                headers=headers,
-                body=data[parsed.consumed:],
-                stream=client.as_stream())
-
-            response = await app(request)
-            await client.sendall(bytes(response))
+import httpparser
 
 
-async def pebble_server(app, address):
 
-    def create_listening_socket(address):
-        sock = socket.socket()
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(address)
-        sock.listen()
-        return sock
+class Receiver:
 
-    sock = create_listening_socket(address)
-    print("Now listening on %s:%d" % address)
+    def __init__(self):
+        self.parser = httpparser.Request(self)
 
-    async with SignalQueue(signal.SIGHUP) as restart:
-        async with sock:
-            while True:
-                client, _ = await sock.accept()
-                await spawn(http_handler, app, client, daemon=True)
+    def on_header(self, name, value):
+        pass
 
+    def on_headers(self, headers):
+        pass
+
+    def on_uri(self, uri):
+        pass
+
+    def on_body(self, body):
+        pass
+
+    def on_complete(self):
+        pass
+
+    def data_received(self, data):
+        self.parser.parse(data)
 
 
 
@@ -72,49 +46,54 @@ class RequestHandler:
 
     def __init__(self, app):
         self.app = app
-        self.parser = HTTPParser()
         self.max_head_size = 8**5
 
-    def make_request(self, data):
-        try:
-            parsed = self.parser.parse_request(memoryview(data))
-        except ParseError:
-            return HttpError(
-                HTTPStatus.BAD_REQUEST,
-                message=b'Unparsable request')
+    async def receive(self, client):
+        p = HttpParser()
+        while True:
+            data = await client.recv(4096)
+            if not data:
+                break
 
-        if parsed:
-            headers = {}
-            for name, value in parsed.headers:
-                headers[name.tobytes().decode()] = value.tobytes().decode()
-                
-            request = Request(
-                parsed.path.tobytes(),
-                parsed.method.tobytes().decode().upper(),
-                headers=headers,
-                body=data[parsed.consumed:])
-            return request
+            recved = len(data)
+            nparsed = p.execute(data, recved)
+            assert nparsed == recved
 
-    async def http_cycle(self, client):
-        data = await client.recv(self.max_head_size)
-        if not data:
-            return
-        request = await run_in_thread(self.make_request, data)
-        if request is not None:
-            if isinstance(request, HttpError):
-                await client.sendall(bytes(request))
-            else:
-                response = await self.app(request)
-                await client.sendall(bytes(response))
+            if p.is_message_begin():
+                client._socket.settimeout(None)
+            
+            if p.is_headers_complete():
+                request = Request(
+                    p.get_url().encode(),
+                    method=p.get_method(),
+                    headers=p.get_headers())
+
+            if p.is_partial_body():
+                request.body += p.recv_body()
+
+            if p.is_message_complete():
+                yield request
+                p = HttpParser()
 
     async def __call__(self, client, addr):
-        async with client:
-            while True:
+        try:
+            async with client:
+                client._socket.settimeout(10.0)
                 try:
-                    await self.http_cycle(client)
-                except ConnectionResetError:
-                    break
-                
+                    async for request in self.receive(client):
+                        if request is None:
+                            break 
+                        if isinstance(request, HttpError):
+                            await client.sendall(bytes(request))
+                        else:
+                            response = await self.app(request)
+                            await client.sendall(bytes(response))
+                            client._socket.settimeout(10.0)
+                except (ConnectionResetError, BrokenPipeError):
+                    pass
+        except socket.timeout:
+            print('Closed for inactivity')
+
 
 Route = namedtuple('Route', ['payload', 'vars'])
             
@@ -153,4 +132,7 @@ class Granite:
     def serve(self, host='127.0.0.1', port=5000):
          #run(pebble_server(self, (host, port)))
         handler = RequestHandler(self)
-        run(tcp_server(host, port, handler))
+        try:
+            run(tcp_server(host, port, handler))
+        except KeyboardInterrupt:
+            pass
