@@ -1,4 +1,4 @@
-Taels
-=====
+Granite
+=======
 
-Gotta go fast.
+Chiseled for duration
