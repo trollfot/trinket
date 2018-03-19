@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import signal
-from curio import run, spawn, socket, ssl, tcp_server, current_task
-from curio import SignalQueue, Event, CancelledError, TaskGroup
+from curio import run, spawn, socket, ssl, tcp_server, run_in_thread
+from curio import Queue, SignalQueue, Event, CancelledError, TaskGroup
 from collections import namedtuple, defaultdict
 from autoroutes import Routes
 from httptools import (
@@ -10,38 +10,18 @@ from httptools import (
 from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
+from functools import partial
+import httpparser
 
-from pycohttpparser.api import Parser as HTTPParser
 
+class Parser:
 
-
-class ConnectionManager:
-
-    max_head_size = 8**5  # 4096*8
-
-    def __init__(self, app, client):
-        self.client = client
-        self.parser = HttpRequestParser(self)
-        self.complete = False
+    def __init__(self):
+        self.parser = httpparser.Request(self)
         self.request = None
-        
-    async def receive(self):
+        self.complete = False
 
-        data = await self.client.recv(self.max_head_size)
-        # Data should contain the entirety of the headers.
-        try:
-            self.parser.feed_data(data)
-            if self.complete:
-                return self.request
-        except HttpParserError:
-            return HttpError(
-                HTTPStatus.BAD_REQUEST,
-                message=b'Unparsable request')
-
-    def on_message_begin(self):
-        self.request = Request()
-
-    def on_header(self, name: bytes, value: bytes):
+    def on_header(self, name, value):
         value = value.decode()
         if value:
             name = name.decode().upper()
@@ -50,53 +30,63 @@ class ConnectionManager:
             else:
                 self.request.headers[name] = value
 
-    def on_headers_complete(self):
-        self.request.method = self.parser.get_method().decode().upper()
+    def on_uri(self, uri):
+        self.request.url = uri
 
-    def on_body(self, body: bytes):
+    def on_body(self, body):
         self.request.body += body
 
-    def on_url(self, url: bytes):
-        self.request.url = url
-
-    def on_message_complete(self):
+    def on_complete(self):
+        self.request.keep_alive = self.parser.should_keep_alive()
         self.complete = True
 
+    def data_received(self, data):
+        if self.request is None:
+            self.request = Request()
+        self.parser.parse(data)
 
 
-async def http_handler(app, client):
+class RequestHandler:
 
-    connection = ConnectionManager(app, client)
-    async with client:
+    def __init__(self, app):
+        self.app = app
+
+    async def receive(self, client):
+        parser = Parser()
         while True:
-            try:
-                request = await connection.receive()
-                if isinstance(request, HttpError):
-                    await client.send(bytes(request))
-                else:
-                    response = await app(request)
-                    await client.send(bytes(response))
-            except (ConnectionResetError, BrokenPipeError):
+            data = await client.recv(4096)
+            if not data:
                 break
+            
+            parser.data_received(data)
+            if parser.complete:
+                yield parser.request
+                parser.request = None
+                parser.complete = False
 
-
-async def pebble_server(app, address):
-
-    def create_listening_socket(address):
-        sock = socket.socket()
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(address)
-        sock.listen()
-        return sock
-
-    sock = create_listening_socket(address)
-    print("Now listening on %s:%d" % address)
-
-    async with SignalQueue(signal.SIGHUP) as restart:
-        async with sock:
-            while True:
-                client, _ = await sock.accept()
-                await spawn(http_handler, app, client, daemon=True)
+    async def __call__(self, client, addr):
+        try:
+            async with client:
+                client._socket.settimeout(10.0)
+                try:
+                    keep_alive = True
+                    async for request in self.receive(client):
+                        if request is None:
+                            break 
+                        if isinstance(request, HttpError):
+                            await client.sendall(bytes(request))
+                        else:
+                            response = await self.app(request)
+                            await client.sendall(bytes(response))
+                            keep_alive = request.keep_alive
+                        if keep_alive:
+                            client._socket.settimeout(10.0)
+                        else:
+                            break
+                except (ConnectionResetError, BrokenPipeError):
+                    pass
+        except socket.timeout:
+            print('Closed for inactivity')
 
 
 Route = namedtuple('Route', ['payload', 'vars'])
@@ -134,4 +124,9 @@ class Granite:
         return response
 
     def serve(self, host='127.0.0.1', port=5000):
-         run(pebble_server(self, (host, port)))
+         #run(pebble_server(self, (host, port)))
+        handler = RequestHandler(self)
+        try:
+            run(tcp_server(host, port, handler))
+        except KeyboardInterrupt:
+            pass
