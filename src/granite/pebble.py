@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import signal
-from curio import run, spawn, socket, ssl, tcp_server, run_in_thread
-from curio import Queue, SignalQueue, Event, CancelledError, TaskGroup
+from curio import run, spawn, socket, ssl, tcp_server, timeout_after
+from curio import TaskTimeout, Event, CancelledError, TaskGroup
 from collections import namedtuple, defaultdict
 from autoroutes import Routes
 from httptools import (
@@ -11,13 +11,12 @@ from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
 from functools import partial
-import httpparser
 
 
 class Parser:
 
     def __init__(self):
-        self.parser = httpparser.Request(self)
+        self.parser = HttpRequestParser(self)
         self.request = None
         self.complete = False
 
@@ -30,67 +29,77 @@ class Parser:
             else:
                 self.request.headers[name] = value
 
-    def on_uri(self, uri):
-        self.request.url = uri
+    def on_message_begin(self):
+        self.request = Request()
+        self.complete = False
+
+    def on_url(self, url):
+        self.request.url = url
 
     def on_body(self, body):
         self.request.body += body
 
-    def on_complete(self):
+    def on_headers_complete(self):
         self.request.keep_alive = self.parser.should_keep_alive()
+        self.request.method = self.parser.get_method().decode().upper()
         self.complete = True
 
     def data_received(self, data):
-        if self.request is None:
-            self.request = Request()
-        self.parser.parse(data)
+        self.parser.feed_data(data)
 
 
 class RequestHandler:
 
     def __init__(self, app):
         self.app = app
+        self.parser = Parser()
 
-    async def receive(self, client):
-        parser = Parser()
-        while True:
-            data = await client.recv(4096)
-            if not data:
+    async def receive(self, client, stream):
+        async for line in stream:
+            if not line:
                 break
-            
-            parser.data_received(data)
-            if parser.complete:
-                yield parser.request
-                parser.request = None
-                parser.complete = False
+            client._socket.settimeout(None)
+            try:
+                self.parser.data_received(line)
+            except HttpParserError as exc:
+                raise HttpError(HTTPStatus.BAD_REQUEST, 'Unparsable request')
+            if not line.strip():
+                break
+
+        if self.parser.complete:
+            return self.parser.request
 
     async def __call__(self, client, addr):
-        try:
-            async with client:
+        async with client:
+            stream = client.makefile('rb')
+            try:
+                keep_alive = True
                 client._socket.settimeout(10.0)
-                try:
-                    keep_alive = True
-                    async for request in self.receive(client):
-                        if request is None:
-                            break 
-                        if isinstance(request, HttpError):
-                            await client.sendall(bytes(request))
-                        else:
-                            response = await self.app(request)
-                            await client.sendall(bytes(response))
-                            keep_alive = request.keep_alive
-                        if keep_alive:
-                            client._socket.settimeout(10.0)
-                        else:
-                            break
-                except (ConnectionResetError, BrokenPipeError):
-                    pass
-        except socket.timeout:
-            print('Closed for inactivity')
+                while keep_alive:
+                    request = await self.receive(client, stream)
+                    if request is None:
+                        break
+                    if isinstance(request, HttpError):
+                        await client.sendall(bytes(request))
+                    else:
+                        keep_alive = request.keep_alive
+                        request.stream = stream
+                        response = await self.app(request)
+                        await client.sendall(bytes(response))
+                    client._socket.settimeout(10.0)
+            except HttpError as exc:
+                # An error occured during the processing of the request.
+                # We write down an error for the client.
+                await client.sendall(bytes(exc))
+            except (ConnectionResetError, BrokenPipeError):
+                # The client disconnected or the network is suddenly
+                # unreachable.
+                pass
+            except socket.timeout:
+                # Our socket timed out, due to the lack of activity.
+                pass
 
 
-Route = namedtuple('Route', ['payload', 'vars'])
-            
 class Granite:
 
     def __init__(self):
@@ -104,13 +113,14 @@ class Granite:
         response.body = error.message
 
     async def lookup(self, request: Request, response: Response):
-        route = Route(*self.routes.match(request.path))
-        if not route.payload:
+        payload, params = self.routes.match(request.path)
+        if not payload:
             raise HttpError(HTTPStatus.NOT_FOUND, request.path)
         # Uppercased in order to only consider HTTP verbs.
-        if request.method.upper() not in route.payload:
+        handler = payload.get(request.method.upper(), None)
+        if handler is None:
             raise HttpError(HTTPStatus.METHOD_NOT_ALLOWED)
-        return route.payload[request.method.upper()], route.vars
+        return handler, params
 
     async def __call__(self, request: Request) -> Response:
         response = Response(self, request)
