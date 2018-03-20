@@ -1,16 +1,11 @@
 # -*- coding: utf-8 -*-
 
-import signal
-from curio import run, spawn, socket, ssl, tcp_server, timeout_after
-from curio import TaskTimeout, Event, CancelledError, TaskGroup
-from collections import namedtuple, defaultdict
+from curio import run, socket, tcp_server
 from autoroutes import Routes
-from httptools import (
-    HttpParserUpgrade, HttpParserError, HttpRequestParser, parse_url)
+from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
 from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
-from functools import partial
 
 
 class Parser:

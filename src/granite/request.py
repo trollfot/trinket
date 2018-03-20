@@ -16,7 +16,7 @@ from curio import timeout_after
 from httptools import parse_url
 from multifruits import Parser, extract_filename, parse_content_disposition
 
-from .http import HTTPStatus, HttpError, Form, Files
+from .http import HTTPStatus, HttpError, Form, Files, Query
 
 
 class Multipart:
