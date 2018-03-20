@@ -59,7 +59,10 @@ class RequestHandler:
             if not line:
                 break
             client._socket.settimeout(None)
-            self.parser.data_received(line)
+            try:
+                self.parser.data_received(line)
+            except HttpParserError as exc:
+                raise HttpError(HTTPStatus.BAD_REQUEST, 'Unparsable request')
             if not line.strip():
                 break
 
@@ -84,14 +87,19 @@ class RequestHandler:
                         response = await self.app(request)
                         await client.sendall(bytes(response))
                     client._socket.settimeout(10.0)
+            except HttpError as exc:
+                # An error occured during the processing of the request.
+                # We write down an error for the client.
+                await client.sendall(bytes(exc))
             except (ConnectionResetError, BrokenPipeError):
+                # The client disconnected or the network is suddenly
+                # unreachable.
                 pass
             except socket.timeout:
-                print('Connection timedout.')
+                # Our socket timed out, due to the lack of activity.
+                pass
 
 
-Route = namedtuple('Route', ['payload', 'vars'])
-            
 class Granite:
 
     def __init__(self):
@@ -105,13 +113,14 @@ class Granite:
         response.body = error.message
 
     async def lookup(self, request: Request, response: Response):
-        route = Route(*self.routes.match(request.path))
-        if not route.payload:
+        payload, params = self.routes.match(request.path)
+        if not payload:
             raise HttpError(HTTPStatus.NOT_FOUND, request.path)
         # Uppercased in order to only consider HTTP verbs.
-        if request.method.upper() not in route.payload:
+        handler = payload.get(request.method.upper(), None)
+        if handler is None:
             raise HttpError(HTTPStatus.METHOD_NOT_ALLOWED)
-        return route.payload[request.method.upper()], route.vars
+        return handler, params
 
     async def __call__(self, request: Request) -> Response:
         response = Response(self, request)
@@ -121,7 +130,6 @@ class Granite:
                 handler, params = found
                 await handler(request, response, **params)
         except Exception as error:
-            raise
             await self.on_error(request, response, error)
         return response
 
