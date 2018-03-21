@@ -73,13 +73,13 @@ class Multipart:
         self._current = None
 
 
-async def multipart(expected_size, stream, content_type):
+async def multipart(expected_size, socket, content_type):
     try:
         read = 0
         parser = Multipart(content_type)
         while read < expected_size:
             try:
-                chunk = await timeout_after(2, stream.read, 4096)
+                chunk = await timeout_after(2, socket.recv, 4096)
                 parser.feed_data(chunk)
                 read += len(chunk)
             except TaskTimeout:
@@ -87,9 +87,6 @@ async def multipart(expected_size, stream, content_type):
 
             if not chunk:
                 break
-
-        import pdb
-        pdb.set_trace()
             
         return read, parser.form, parser.files
     except ValueError:
@@ -97,13 +94,13 @@ async def multipart(expected_size, stream, content_type):
                         'Unparsable multipart body')
 
 
-async def url_encoded(expected_size, stream, *args):
+async def url_encoded(expected_size, socket, *args):
 
     read = 0
     data = b''
     while read < expected_size:
         try:
-            chunk = await timeout_after(2, stream.read, 8192)
+            chunk = await timeout_after(2, socket.recv, 4096)
             if not chunk:
                 break
         except TaskTimeout:
@@ -140,11 +137,11 @@ class Request(dict):
         'method',
         'path',
         'query_string',
-        'stream',
+        'socket',
     )
 
     def __init__(self):
-        self.stream = None
+        self.socket = None
         self.method = 'GET'
         self.headers = {}
         self.body = b''
@@ -167,7 +164,7 @@ class Request(dict):
                 raise NotImplementedError("Don't know how to parse")
             else:
                 (self._read_body_size, self._form, self._files
-                ) = await parser(expected, self.stream, self.content_type)
+                ) = await parser(expected, self.socket, self.content_type)
                 if not self._read_body_size:
                     raise TypeError('Empty body !')
 
