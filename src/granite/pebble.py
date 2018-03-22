@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
 from functools import wraps
+from collections import defaultdict
 
-from curio import run, socket, tcp_server, timeout_after
+from curio import run, spawn, socket, tcp_server, timeout_after
 from curio import TaskTimeout, TaskGroup
 from autoroutes import Routes
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
@@ -51,16 +52,16 @@ class ClientHandler:
     It can be kept alive as long as the timeout is respected.
     """
     
-    __slots__ = ('app', 'httpparser', 'upgrade')
+    __slots__ = ('app', 'upgrade')
     
     max_field_size = 2**16
     
     def __init__(self, app):
         self.app = app
-        self.httpparser = HTTPParser()
         self.upgrade = False
 
     async def receive(self, stream):
+        httpparser = HTTPParser()
         async for line in stream:
             if not line:
                 break
@@ -68,7 +69,7 @@ class ClientHandler:
                 raise HttpError(
                     HTTPStatus.BAD_REQUEST, 'Request headers too large.')
             try:
-                self.httpparser.parser.feed_data(line)
+                httpparser.parser.feed_data(line)
             except HttpParserError as exc:
                 raise HttpError(
                     HTTPStatus.BAD_REQUEST, 'Unparsable request.')
@@ -78,8 +79,8 @@ class ClientHandler:
                 # End of the headers section.
                 break
 
-        if self.httpparser.complete:
-            return self.httpparser.request
+        if httpparser.complete:
+            return httpparser.request
 
     async def __call__(self, client, addr):
         stream = client.makefile('rb')
@@ -119,13 +120,35 @@ class ClientHandler:
                 pass
 
 
+def handler_lifecycle(func):
+    @wraps(func)
+    async def lifecycle(app, request, *args, **kwargs):
+        response = await app.notify('request', request)
+        if response is None:
+            response = await func(app, request, *args, **kwargs)
+        if response is not None:
+            await app.notify('response', request, response)
+        return response
+    return lifecycle
+
+
+def app_lifecycle(func):
+    @wraps(func)
+    async def lifecycle(app, *args, **kwargs):
+        await app.notify('startup')
+        await func(app, *args, **kwargs)
+        await app.notify('shutdown')
+    return lifecycle
+
+
 class Granite:
 
-    __slots__ = ('routes', 'websockets')
+    __slots__ = ('hooks', 'routes', 'websockets')
 
     def __init__(self):
         self.routes = Routes()
         self.websockets = set()
+        self.hooks = defaultdict(list)
 
     async def on_error(self, request: Request, error):
         response = Response(request)
@@ -154,7 +177,8 @@ class Granite:
                     'This is a websocket endpoint, please upgrade.')
 
         return handler, params
-
+    
+    @handler_lifecycle
     async def __call__(self, request: Request, upgrade: bool=False):
         try:
             handler, params = await self.lookup(request, upgrade)
@@ -197,9 +221,27 @@ class Granite:
 
         return wrapper
 
-    def serve(self, host='127.0.0.1', port=5000):
+    def listen(self, name: str):
+        def wrapper(func):
+            self.hooks[name].append(func)
+        return wrapper
+    
+    async def notify(self, name, *args, **kwargs):
+        if name in self.hooks:
+            for hook in self.hooks[name]:
+                result = await hook(*args, **kwargs)
+                if result is not None:
+                    # Allows to shortcut the chain.
+                    return result
+        return None
+
+    @app_lifecycle
+    async def serve(self, host, port):
         handler = ClientHandler(self)
+        await tcp_server(host, port, handler)
+
+    def start(self, host='127.0.0.1', port=5000):
         try:
-            run(tcp_server(host, port, handler))
+            run(self.serve(host, port))
         except KeyboardInterrupt:
             pass
