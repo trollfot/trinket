@@ -1,19 +1,16 @@
 # -*- coding: utf-8 -*-
 
+from functools import wraps
+
 from curio import run, socket, tcp_server, timeout_after
 from curio import TaskTimeout, TaskGroup
 from autoroutes import Routes
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
+
 from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
 from .websockets import Websocket
-
-
-class Upgrade:
-
-    def __init__(self, request):
-        self.request = request
 
 
 class HTTPParser:
@@ -63,16 +60,13 @@ class ClientHandler:
         self.httpparser = HTTPParser()
         self.upgrade = False
 
-    async def receive(self, client):
-        stream = client.makefile('rb')
+    async def receive(self, stream):
         async for line in stream:
             if not line:
                 break
             if len(line) > self.max_field_size:
                 return HttpError(
                     HTTPStatus.BAD_REQUEST, 'Request headers too large.')
-            # 2 sec tolerance while reading each line
-            client._socket.settimeout(2)
             try:
                 self.httpparser.parser.feed_data(line)
             except HttpParserError as exc:
@@ -88,12 +82,13 @@ class ClientHandler:
             return self.httpparser.request
 
     async def __call__(self, client, addr):
+        stream = client.makefile('rb')
         async with client:
             try:
                 keep_alive = True
                 client._socket.settimeout(10.0)
                 while keep_alive:
-                    request = await self.receive(client)
+                    request = await self.receive(stream)
                     if request is None:
                         break
                     if isinstance(request, HttpError):
@@ -103,7 +98,8 @@ class ClientHandler:
                         request.socket = client
                         client._socket.settimeout(None)
                         response = await self.app(request, self.upgrade)
-                        await client.sendall(bytes(response))
+                        if response:
+                            await client.sendall(bytes(response))
                     if keep_alive:
                         # We answered. The socket timeout is reset.
                         client._socket.settimeout(10.0)
@@ -120,13 +116,16 @@ class ClientHandler:
                 pass
 
 
-class Granite(dict):
+class Granite:
+
+    __slots__ = ('routes', 'websockets')
 
     def __init__(self):
         self.routes = Routes()
+        self.websockets = set()
 
     async def on_error(self, request: Request, error):
-        response = Response(self, request)
+        response = Response(request)
         if not isinstance(error, HttpError):
             error = HttpError(HTTPStatus.INTERNAL_SERVER_ERROR,
                               str(error).encode())
@@ -134,40 +133,33 @@ class Granite(dict):
         response.body = error.message
         return response
 
-    async def lookup(self, request: Request):
+    async def lookup(self, request: Request, upgrade: bool=False):
         payload, params = self.routes.match(request.path)
         if not payload:
             raise HttpError(HTTPStatus.NOT_FOUND, request.path)
+
         # Uppercased in order to only consider HTTP verbs.
         handler = payload.get(request.method.upper(), None)
         if handler is None:
             raise HttpError(HTTPStatus.METHOD_NOT_ALLOWED)
-        return handler, params, payload
 
-    async def __call__(self, request: Request, upgrade=False) -> Response:
+        # We check if the route is for a websocket handler.
+        # If it is, we make sure we were asked for an upgrade.
+        if payload.get('websocket', False) and not upgrade:
+                raise HttpError(
+                    HTTPStatus.UPGRADE_REQUIRED,
+                    'This is a websocket endpoint, please upgrade.')
+
+        return handler, params
+
+    async def __call__(self, request: Request, upgrade: bool=False):
         try:
-            found = await self.lookup(request)
-            if found is not None:
-                handler, params, payload = found
-                if payload.get('websocket', False):
-                    if not upgrade:
-                        error = HttpError(
-                            HTTPStatus.UPGRADE_REQUIRED,
-                            'This is a websocket endpoint, please upgrade.')
-                        response = await self.on_error(request, error)
-                    else:
-                        websocket = Websocket(request)
-                        await websocket.upgrade()
-                        async with TaskGroup(wait=any) as ws:
-                            await ws.spawn(
-                                handler, request, websocket, **params)
-                            await ws.spawn(websocket.run)
-                else:
-                    response = Response(self, request)
-                    await handler(request, response, **params)
+            handler, params = await self.lookup(request, upgrade)
+            response = Response(request)
+            await handler(self, request, response, **params)
+            return response
         except Exception as error:
-            response = await self.on_error(request, error)
-        return response
+            return await self.on_error(request, error)
 
     def route(self, path: str, methods: list=None, **extras: dict):
         if methods is None:
@@ -184,7 +176,18 @@ class Granite(dict):
     def websocket(self, path: str, **extras: dict):
 
         def wrapper(func):
-            payload = {'GET': func, 'websocket': True}
+            @wraps(func)
+            async def websocket_handler(app, request, response, **params):
+                del response
+                websocket = Websocket(request)
+                await websocket.upgrade()
+                self.websockets.add(websocket)
+                async with TaskGroup(wait=any) as ws:
+                    await ws.spawn(func, app, request, websocket, **params)
+                    await ws.spawn(websocket.run)
+                self.websockets.discard(websocket)
+
+            payload = {'GET': websocket_handler, 'websocket': True}
             payload.update(extras)
             self.routes.add(path, **payload)
             return func

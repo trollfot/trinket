@@ -5,15 +5,14 @@ try:
 except ImportError:
     import json as json
 
-from .http import HttpCode, HTTPStatus, HttpError
+from .http import HttpCode, HTTPStatus, HttpError, Cookies
 
 
 class Response:
     """A container for `status`, `headers` and `body`."""
 
     __slots__ = (
-        'app', 'request', 'headers', 'body', 'bodyless',
-        '_cookies', '_status',
+        'request', 'headers', 'body', 'bodyless', '_cookies', '_status',
     )
 
     BODYLESS_METHODS = frozenset(('HEAD', 'CONNECT'))
@@ -22,17 +21,12 @@ class Response:
         HTTPStatus.PROCESSING, HTTPStatus.NO_CONTENT,
         HTTPStatus.NOT_MODIFIED))
 
-    def __init__(self, app, request=None, status=HTTPStatus.OK, body=b''):
+    def __init__(self, request, status=HTTPStatus.OK, body=b''):
         self._cookies = None
-        self.app = app
         self.request = request
         self.status = status  # Needs to be after request assignation.
         self.body = body
         self.headers = {}
-
-    @classmethod
-    def from_http_error(cls, app, error: HttpError):
-        return cls(app, status=error.status, body=error.message)
 
     @property
     def status(self):
@@ -57,7 +51,7 @@ class Response:
     @property
     def cookies(self):
         if self._cookies is None:
-            self._cookies = self.app.Cookies()
+            self._cookies = Cookies()
         return self._cookies
 
     def __bytes__(self):

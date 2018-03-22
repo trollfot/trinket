@@ -2,9 +2,8 @@
 from curio import spawn, Queue, TaskGroup
 from wsproto.connection import WSConnection, CLIENT, SERVER
 from wsproto.events import TextReceived, BytesReceived
-from wsproto.events import (
-    ConnectionEstablished, ConnectionFailed, ConnectionRequested
-)
+from wsproto.events import ConnectionRequested, ConnectionEstablished
+from wsproto.events import ConnectionFailed, ConnectionClosed
 from wsproto.connection import WSConnection, SERVER
 
 
