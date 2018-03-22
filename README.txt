@@ -1,4 +1,0 @@
-Granite
-=======
-
-Chiseled for duration
