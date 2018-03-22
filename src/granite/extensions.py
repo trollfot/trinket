@@ -17,6 +17,6 @@ def logger(app, level=logging.DEBUG):
 
     @app.listen('shutdown')
     async def shutdown():
-        listener.stop()
+        logger.removeHandler(handler)
 
     return app

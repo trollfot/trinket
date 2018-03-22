@@ -5,7 +5,7 @@ try:
 except ImportError:
     import json as json
 
-from .http import HttpCode, HTTPStatus, HttpError, Cookies
+from .http import HttpCode, HTTPStatus, Cookies
 
 
 class Response:

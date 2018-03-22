@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from functools import wraps
+import signal
+from functools import wraps, partial
 from collections import defaultdict
 
-from curio import run, spawn, socket, tcp_server, timeout_after
-from curio import TaskTimeout, TaskGroup
+from curio import spawn, socket, tcp_server
+from curio import TaskGroup, Kernel, SignalEvent
 from autoroutes import Routes
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
 
@@ -23,7 +24,10 @@ class HTTPParser:
         self.complete = False
 
     def data_received(self, data):
-        self.parser.feed_data(data)
+        try:
+            self.parser.feed_data(data)
+        except HttpParserUpgrade as upgrade:
+            self.request.upgrade = True
 
     def on_header(self, name, value):
         value = value.decode()
@@ -47,77 +51,63 @@ class HTTPParser:
         self.complete = True
 
 
-class ClientHandler:
-    """This handler is spawned for each new connection.
-    It can be kept alive as long as the timeout is respected.
-    """
-    
-    __slots__ = ('app', 'upgrade')
-    
-    max_field_size = 2**16
-    
-    def __init__(self, app):
-        self.app = app
-        self.upgrade = False
+async def read_headers(stream, max_field_size=2**16):
+    httpparser = HTTPParser()
+    async for line in stream:
+        if not line:
+            break
+        if len(line) > max_field_size:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST, 'Request headers too large.')
+        try:
+            httpparser.data_received(line)
+        except HttpParserError as exc:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+        if not line.strip():
+            # End of the headers section.
+            break
 
-    async def receive(self, stream):
-        httpparser = HTTPParser()
-        async for line in stream:
-            if not line:
-                break
-            if len(line) > self.max_field_size:
-                raise HttpError(
-                    HTTPStatus.BAD_REQUEST, 'Request headers too large.')
-            try:
-                httpparser.parser.feed_data(line)
-            except HttpParserError as exc:
-                raise HttpError(
-                    HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-            except HttpParserUpgrade as upgrade:
-                self.upgrade = True
-            if not line.strip():
-                # End of the headers section.
-                break
+    if httpparser.complete:
+        return httpparser.request
 
-        if httpparser.complete:
-            return httpparser.request
 
-    async def __call__(self, client, addr):
-        stream = client.makefile('rb')
-        async with client:
-            try:
-                keep_alive = True
-                client._socket.settimeout(10.0)
-                while keep_alive:
-                    try:
-                        request = await self.receive(stream)
-                    except HttpError as exc:
-                        await client.sendall(bytes(exc))
-                        continue
-                    else:
-                        if request is None:
-                            break
-                        keep_alive = request.keep_alive
-                        request.socket = client
-                        client._socket.settimeout(None)  # Suspend timeout
-                        response = await self.app(request, self.upgrade)
-                        if response:
-                            await client.sendall(bytes(response))
-                    finally:
-                        if keep_alive:
-                            # We answered. The socket timeout is reset.
-                            client._socket.settimeout(10.0)
-            except HttpError as exc:
-                # An error occured during the processing of the request.
-                # We write down an error for the client.
-                await client.sendall(bytes(exc))
-            except (ConnectionResetError, BrokenPipeError):
-                # The client disconnected or the network is suddenly
-                # unreachable.
-                pass
-            except socket.timeout:
-                # Our socket timed out, due to the lack of activity.
-                pass
+async def request_handler(app, client, addr):
+    stream = client.makefile('rb')
+    async with client:
+        try:
+            keep_alive = True
+            client._socket.settimeout(10.0)
+            while keep_alive:
+                try:
+                    request = await read_headers(stream)
+                except HttpError as exc:
+                    await client.sendall(bytes(exc))
+                    continue
+                else:
+                    if request is None:
+                        break
+                    keep_alive = request.keep_alive
+                    request.socket = client
+                    client._socket.settimeout(None)  # Suspend timeout
+                    response = await app(request)
+                    if response:
+                        await client.sendall(bytes(response))
+                finally:
+                    if keep_alive:
+                        # We answered. The socket timeout is reset.
+                        client._socket.settimeout(10.0)
+        except HttpError as exc:
+            # An error occured during the processing of the request.
+            # We write down an error for the client.
+            await client.sendall(bytes(exc))
+        except (ConnectionResetError, BrokenPipeError):
+            # The client disconnected or the network is suddenly
+            # unreachable.
+            pass
+        except socket.timeout:
+            # Our socket timed out, due to the lack of activity.
+            pass
 
 
 def handler_lifecycle(func):
@@ -141,6 +131,9 @@ def app_lifecycle(func):
     return lifecycle
 
 
+Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
+
+
 class Granite:
 
     __slots__ = ('hooks', 'routes', 'websockets')
@@ -159,7 +152,7 @@ class Granite:
         response.body = error.message
         return response
 
-    async def lookup(self, request: Request, upgrade: bool=False):
+    async def lookup(self, request: Request):
         payload, params = self.routes.match(request.path)
         if not payload:
             raise HttpError(HTTPStatus.NOT_FOUND, request.path)
@@ -171,20 +164,18 @@ class Granite:
 
         # We check if the route is for a websocket handler.
         # If it is, we make sure we were asked for an upgrade.
-        if payload.get('websocket', False) and not upgrade:
-                raise HttpError(
-                    HTTPStatus.UPGRADE_REQUIRED,
-                    'This is a websocket endpoint, please upgrade.')
+        if payload.get('websocket', False) and not request.upgrade:
+            raise HttpError(
+                HTTPStatus.UPGRADE_REQUIRED,
+                'This is a websocket endpoint, please upgrade.')
 
         return handler, params
-    
-    @handler_lifecycle
-    async def __call__(self, request: Request, upgrade: bool=False):
+
+    #@handler_lifecycle
+    async def __call__(self, request: Request):
         try:
-            handler, params = await self.lookup(request, upgrade)
-            response = Response(request)
-            await handler(self, request, response, **params)
-            return response
+            handler, params = await self.lookup(request)
+            return await handler(request, **params)
         except Exception as error:
             return await self.on_error(request, error)
 
@@ -193,10 +184,16 @@ class Granite:
             methods = ['GET']
 
         def wrapper(func):
-            payload = {method: func for method in methods}
+            @wraps(func)
+            async def handler(request, **params):
+                response = Response(request)
+                await func(request, response, **params)
+                return response
+
+            payload = {method: handler for method in methods}
             payload.update(extras)
             self.routes.add(path, **payload)
-            return func
+            return handler
 
         return wrapper
 
@@ -204,13 +201,12 @@ class Granite:
 
         def wrapper(func):
             @wraps(func)
-            async def websocket_handler(app, request, response, **params):
-                del response
+            async def websocket_handler(request, **params):
                 websocket = Websocket(request)
                 await websocket.upgrade()
                 self.websockets.add(websocket)
                 async with TaskGroup(wait=any) as ws:
-                    await ws.spawn(func, app, request, websocket, **params)
+                    await ws.spawn(func, request, websocket, **params)
                     await ws.spawn(websocket.run)
                 self.websockets.discard(websocket)
 
@@ -237,11 +233,16 @@ class Granite:
 
     @app_lifecycle
     async def serve(self, host, port):
-        handler = ClientHandler(self)
-        await tcp_server(host, port, handler)
+        print('Granite serving on {}:{}'.format(host, port))
+        handler = partial(request_handler, self)
+        server = await spawn(tcp_server, host, port, handler)
+        await Goodbye.wait()
+        print('Server is shutting down.')
+        print('Please wait. The remaining tasks are being terminated.')
+        await server.cancel()
 
     def start(self, host='127.0.0.1', port=5000):
-        try:
-            run(self.serve(host, port))
-        except KeyboardInterrupt:
-            pass
+        kernel = Kernel()
+        kernel.run(self.serve, host, port)
+        kernel.run(shutdown=True)
+        print('Granite is crumbling away...')

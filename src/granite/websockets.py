@@ -1,10 +1,8 @@
 
-from curio import spawn, Queue, TaskGroup
-from wsproto.connection import WSConnection, CLIENT, SERVER
-from wsproto.events import TextReceived, BytesReceived
-from wsproto.events import ConnectionRequested, ConnectionEstablished
-from wsproto.events import ConnectionFailed, ConnectionClosed
+from curio import Queue, TaskGroup
 from wsproto.connection import WSConnection, SERVER
+from wsproto.events import TextReceived, BytesReceived
+from wsproto.events import ConnectionRequested, ConnectionClosed
 
 
 DATA_TYPES = (TextReceived, BytesReceived)

@@ -138,6 +138,7 @@ class Request(dict):
         'path',
         'query_string',
         'socket',
+        'upgrade',
     )
 
     def __init__(self):
@@ -151,6 +152,7 @@ class Request(dict):
         self._files = None
         self._url = None
         self.keep_alive = False
+        self.upgrade = False
         self._read_body_size = 0
 
     async def parse_body(self):
