@@ -65,12 +65,12 @@ class ClientHandler:
             if not line:
                 break
             if len(line) > self.max_field_size:
-                return HttpError(
+                raise HttpError(
                     HTTPStatus.BAD_REQUEST, 'Request headers too large.')
             try:
                 self.httpparser.parser.feed_data(line)
             except HttpParserError as exc:
-                return HttpError(
+                raise HttpError(
                     HTTPStatus.BAD_REQUEST, 'Unparsable request.')
             except HttpParserUpgrade as upgrade:
                 self.upgrade = True
@@ -88,21 +88,24 @@ class ClientHandler:
                 keep_alive = True
                 client._socket.settimeout(10.0)
                 while keep_alive:
-                    request = await self.receive(stream)
-                    if request is None:
-                        break
-                    if isinstance(request, HttpError):
-                        await client.sendall(bytes(request))                   
+                    try:
+                        request = await self.receive(stream)
+                    except HttpError as exc:
+                        await client.sendall(bytes(exc))
+                        continue
                     else:
+                        if request is None:
+                            break
                         keep_alive = request.keep_alive
                         request.socket = client
-                        client._socket.settimeout(None)
+                        client._socket.settimeout(None)  # Suspend timeout
                         response = await self.app(request, self.upgrade)
                         if response:
                             await client.sendall(bytes(response))
-                    if keep_alive:
-                        # We answered. The socket timeout is reset.
-                        client._socket.settimeout(10.0)
+                    finally:
+                        if keep_alive:
+                            # We answered. The socket timeout is reset.
+                            client._socket.settimeout(10.0)
             except HttpError as exc:
                 # An error occured during the processing of the request.
                 # We write down an error for the client.
