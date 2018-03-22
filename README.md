@@ -3,7 +3,7 @@ Granite
 
 Chiseled for duration
 
-Aknownledgments
+Acknowledgments
 ---------------
 
 Granite's Request, Response, Parsers and HTTP entities (Query, MultiPart...) are based on Roll's code.
