@@ -3,6 +3,33 @@ Granite
 
 Chiseled for duration
 
+Example
+-------
+
+        from granite.pebble import Granite
+        from granite.extensions import logger
+
+        pebble = logger(Granite())
+
+
+        @pebble.route('/')
+        async def hello(app, request, response):
+            response.body = b'Hello World !'
+
+
+        @pebble.websocket('/chat')
+        async def feed(app, request, websocket):
+            """Broadcasting websocket.
+            """
+            while True:
+                msg = await websocket.recv()
+                for ws in app.websockets:
+                    if ws is not websocket:
+                        await ws.send(msg)
+
+        pebble.start()
+
+
 Acknowledgments
 ---------------
 
