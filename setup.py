@@ -19,7 +19,7 @@ setup(name='granite',
       version='0.1.dev0',
       description="Curio-based web framework",
       long_description="%s\n\n%s" % (
-          read('README.txt'), read(path.join('docs', 'HISTORY.txt'))),
+          read('README.md'), read(path.join('docs', 'HISTORY.txt'))),
       keywords="Curio HTTP",
       author="",
       author_email="",
