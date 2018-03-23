@@ -6,27 +6,49 @@ Chiseled for duration
 Example
 -------
 
-    from granite.pebble import Granite
+
+    from granite import Granite, Response
     from granite.extensions import logger
 
     pebble = logger(Granite())
 
 
     @pebble.route('/')
-    async def hello(request, response):
-        response.body = b'Hello World !'
+    async def hello(request):
+        return Response.raw(b'Hello World !')
+
+
+    @pebble.route('/feed', methods=['POST'])
+    async def feed(request):
+        return Response.raw(b'You got here')
+
+
+    @pebble.route('/read', methods=['POST'])
+    async def feed(request):
+        await request.parse_body()
+        files = list(request.files.keys())
+        return Response.raw("You got here and it's all read: {}".format(files))
+
+
+    @pebble.route('/hello/full/with/{one}/and/{two}')
+    async def json(request, one, two):    
+        response = Response.json({
+            'parameters': f'{one} and {two}',
+            'query': request.query.get('query'),
+            'cookie': request.cookies['test'],
+        })
+        response.cookies.set(name='bench', value='value')
+        return response
 
 
     @pebble.websocket('/chat')
-    async def chat_client(request, websocket):
-        """Broadcasting websocket.
-        Try connecting two or more, to chat.
-        """
+    async def feed(request, websocket):
         while True:
             msg = await websocket.recv()
             for ws in pebble.websockets:
                 if ws is not websocket:
                     await ws.send(msg)
+
 
     pebble.start()
 
