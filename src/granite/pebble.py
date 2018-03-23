@@ -93,6 +93,10 @@ async def request_handler(app, client, addr):
                     response = await app(request)
                     if response:
                         await client.sendall(bytes(response))
+        
+                    # We need to consume all remaining data unread.
+                    await request.drain()
+
                 finally:
                     if keep_alive:
                         # We answered. The socket timeout is reset.
@@ -144,7 +148,7 @@ class Granite:
         self.hooks = defaultdict(list)
 
     async def on_error(self, request: Request, error):
-        response = Response(request)
+        response = Response()
         if not isinstance(error, HttpError):
             error = HttpError(HTTPStatus.INTERNAL_SERVER_ERROR,
                               str(error).encode())
@@ -171,7 +175,7 @@ class Granite:
 
         return handler, params
 
-    @handler_lifecycle
+    #@handler_lifecycle
     async def __call__(self, request: Request):
         try:
             handler, params = await self.lookup(request)
@@ -184,16 +188,10 @@ class Granite:
             methods = ['GET']
 
         def wrapper(func):
-            @wraps(func)
-            async def handler(request, **params):
-                response = Response(request)
-                await func(request, response, **params)
-                return response
-
-            payload = {method: handler for method in methods}
+            payload = {method: func for method in methods}
             payload.update(extras)
             self.routes.add(path, **payload)
-            return handler
+            return func
 
         return wrapper
 

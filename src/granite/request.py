@@ -126,8 +126,8 @@ class Request(dict):
     
     __slots__ = (
         '_cookies',
-        '_files',
-        '_form',
+        'files',
+        'form',
         '_query',
         '_read_body_size',
         '_url',
@@ -142,18 +142,25 @@ class Request(dict):
     )
 
     def __init__(self):
-        self.socket = None
-        self.method = 'GET'
-        self.headers = {}
-        self.body = b''
         self._cookies = None
         self._query = None
-        self._form = None
-        self._files = None
-        self._url = None
-        self.keep_alive = False
-        self.upgrade = False
         self._read_body_size = 0
+        self._url = None
+        self.body = b''
+        self.files = None
+        self.form = None
+        self.headers = {}
+        self.keep_alive = False
+        self.method = 'GET'
+        self.socket = None
+        self.upgrade = False
+
+    async def drain(self):
+        expected = int(self.headers.get('CONTENT-LENGTH', 0))
+        if expected and expected > self._read_body_size:
+            # We didn't read everything
+            # We need to drain the unread data.
+            await self.socket.recv(expected - self._read_body_size)
 
     async def parse_body(self):
         expected = int(self.headers.get('CONTENT-LENGTH', 0))
@@ -161,11 +168,9 @@ class Request(dict):
             disposition = self.content_type.split(';', 1)[0]
             parser = self.COMPLEX_CONTENT_TYPES.get(disposition)
             if parser is None:
-                import pdb
-                pdb.set_trace()
                 raise NotImplementedError("Don't know how to parse")
             else:
-                (self._read_body_size, self._form, self._files
+                (self._read_body_size, self.form, self.files
                 ) = await parser(expected, self.socket, self.content_type)
                 if not self._read_body_size:
                     raise TypeError('Empty body !')

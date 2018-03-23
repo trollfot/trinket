@@ -11,9 +11,7 @@ from .http import HttpCode, HTTPStatus, Cookies
 class Response:
     """A container for `status`, `headers` and `body`."""
 
-    __slots__ = (
-        'request', 'headers', 'body', 'bodyless', '_cookies', '_status',
-    )
+    __slots__ = ('headers', 'body', 'bodyless', '_cookies', '_status')
 
     BODYLESS_METHODS = frozenset(('HEAD', 'CONNECT'))
     BODYLESS_STATUSES = frozenset((
@@ -21,12 +19,13 @@ class Response:
         HTTPStatus.PROCESSING, HTTPStatus.NO_CONTENT,
         HTTPStatus.NOT_MODIFIED))
 
-    def __init__(self, request, status=HTTPStatus.OK, body=b''):
+    def __init__(self, status=HTTPStatus.OK, body=b'', headers=None):
         self._cookies = None
-        self.request = request
-        self.status = status  # Needs to be after request assignation.
+        self.status = status
         self.body = body
-        self.headers = {}
+        if headers is None:
+            headers = {}
+        self.headers = headers
 
     @property
     def status(self):
@@ -36,17 +35,23 @@ class Response:
     def status(self, http_code: HttpCode):
         # Idempotent if `http_code` is already an `HTTPStatus` instance.
         self._status = HTTPStatus(http_code)
-        self.bodyless = (
-            self._status in self.BODYLESS_STATUSES or
-            (self.request is not None and
-             self.request.method in self.BODYLESS_METHODS))
+        self.bodyless = self._status in self.BODYLESS_STATUSES
 
-    def json(self, value: dict):
-        # Shortcut from a dict to JSON with proper content type.
-        self.headers['Content-Type'] = 'application/json; charset=utf-8'
-        self.body = json.dumps(value)
+    @classmethod
+    def json(cls, value):
+        body = json.dumps(value)
+        headers = {'Content-Type': 'application/json; charset=utf-8'}
+        return cls(body=body, headers=headers)
 
-    json = property(None, json)
+    @classmethod
+    def raw(cls, value: bytes):
+        headers = {'Content-Type': 'text/plain; charset=utf-8'}
+        return cls(body=value, headers=headers)
+
+    @classmethod
+    def html(cls, value: bytes):
+        headers = {'Content-Type': 'text/html; charset=utf-8'}
+        return cls(body=value, headers=headers)
 
     @property
     def cookies(self):
