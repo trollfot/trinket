@@ -4,8 +4,8 @@ import signal
 from functools import wraps, partial
 from collections import defaultdict
 
-from curio import spawn, socket, tcp_server
-from curio import TaskGroup, Kernel, SignalEvent
+from curio import run, spawn, socket, tcp_server
+from curio import TaskGroup, SignalEvent
 from autoroutes import Routes
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
 
@@ -171,7 +171,7 @@ class Granite:
 
         return handler, params
 
-    #@handler_lifecycle
+    @handler_lifecycle
     async def __call__(self, request: Request):
         try:
             handler, params = await self.lookup(request)
@@ -241,8 +241,6 @@ class Granite:
         print('Please wait. The remaining tasks are being terminated.')
         await server.cancel()
 
-    def start(self, host='127.0.0.1', port=5000):
-        kernel = Kernel()
-        kernel.run(self.serve, host, port)
-        kernel.run(shutdown=True)
+    def start(self, host='127.0.0.1', port=5000, debug=False):
+        run(self.serve, host, port, with_monitor=debug)
         print('Granite is crumbling away...')
