@@ -3,6 +3,7 @@
 import signal
 from functools import wraps, partial
 from collections import defaultdict
+from collections.abc import AsyncGenerator
 
 from curio import run, spawn, socket, tcp_server
 from curio import TaskGroup, SignalEvent
@@ -92,8 +93,20 @@ async def request_handler(app, client, addr):
                     client._socket.settimeout(None)  # Suspend timeout
                     response = await app(request)
                     if response:
+                        # Sending the headers
+                        # It sends the body if there's no stream.
                         await client.sendall(bytes(response))
-        
+                        if response.stream is not None:
+                            if isinstance(response.stream, AsyncGenerator):
+                                async for data in response.stream:
+                                    await client.sendall(
+                                        b"%x\r\n%b\r\n" % (len(data), data))
+                            else:
+                                for data in response.stream:
+                                    await client.sendall(
+                                        b"%x\r\n%b\r\n" % (len(data), data))
+                            await request.socket.sendall(b'0\r\n\r\n')
+
                     # We need to consume all remaining data unread.
                     await request.drain()
 

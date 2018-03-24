@@ -8,6 +8,7 @@ Example
 
 
     from granite import Granite, Response
+    from granite.response import file_iterator
     from granite.extensions import logger
 
     pebble = logger(Granite())
@@ -41,6 +42,12 @@ Example
         return response
 
 
+    @pebble.route('/websocket')
+    async def serve_websocket(request):
+        response = Response.streamer(file_iterator('myfile.ext'))
+        return response
+
+
     @pebble.websocket('/chat')
     async def feed(request, websocket):
         while True:
@@ -56,20 +63,28 @@ Example
 Acknowledgments
 ---------------
 
-Granite's Request, Response, Parsers and HTTP entities (Query, MultiPart...) are based on Roll's code.
+Granite's Request, Response, Parsers and HTTP entities (Query,
+MultiPart...) are based on Roll's code.
+
 See : https://github.com/pyrates/roll
 
-It was tuned and modified very slightly to accomodate my ideas: a new workflow for the request/response and the streaming of the request's body at the handler's leisure.
+It was tuned and modified very slightly to accomodate my ideas: a new
+workflow for the request/response and the streaming of the request's
+body at the handler's leisure.
 
-Compared to my Roll's fork, the whole upgrade and websockets parts were re-written with a new library, 'wsproto'.
+Compared to my Roll's fork, the whole upgrade and websockets parts
+were re-written with a new library, 'wsproto'.
 
 Why ?
 -----
 
 I like Curio's async concepts, syntax and philosophy.
-The performances were not a focus on this proof of concept, but they are on par with Roll on asyncio.
+The performances were not a focus on this proof of concept, but they
+are on par with Roll on asyncio.
 
 What now ?
 ----------
 
-A lot of tests to write. Performances to enhance. Have a look at http2 using h2.
+  - A lot of tests to write.
+  - Performances to enhance.
+  - Have a look at http2 using h2.

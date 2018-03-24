@@ -1,3 +1,5 @@
+
+import os
 try:
     # In case you use json heavily, we recommend installing
     # https://pypi.python.org/pypi/ujson for better performances.
@@ -5,13 +7,27 @@ try:
 except ImportError:
     import json as json
 
+from curio import aopen
 from .http import HttpCode, HTTPStatus, Cookies
+
+
+async def file_iterator(path):
+    # Hack to get the asynchroneous file opening without
+    # using the async with, that causes the need for curio.meta.finalize
+    reader = await aopen(path, 'rb').__aenter__()
+    while True:
+        data = await reader.read(4096)
+        if not data:
+            break
+        yield data
+    await reader.close()
 
 
 class Response:
     """A container for `status`, `headers` and `body`."""
 
-    __slots__ = ('headers', 'body', 'bodyless', '_cookies', '_status')
+    __slots__ = (
+        'headers', 'body', 'bodyless', '_cookies', '_status', 'stream')
 
     BODYLESS_METHODS = frozenset(('HEAD', 'CONNECT'))
     BODYLESS_STATUSES = frozenset((
@@ -26,6 +42,7 @@ class Response:
         if headers is None:
             headers = {}
         self.headers = headers
+        self.stream = None
 
     @property
     def status(self):
@@ -53,12 +70,23 @@ class Response:
         headers = {'Content-Type': 'text/html; charset=utf-8'}
         return cls(body=value, headers=headers)
 
+    @classmethod
+    def streamer(self, gen, content_type="application/octet-stream"):
+        headers = {
+            'Content-Type': content_type,
+            'Transfer-Encoding': 'chunked',
+            'Keep-Alive': 10,
+        }
+        response = Response(headers=headers)
+        response.stream = gen
+        return response
+
     @property
     def cookies(self):
         if self._cookies is None:
             self._cookies = Cookies()
         return self._cookies
-
+    
     def __bytes__(self):
         response = b'HTTP/1.1 %a %b\r\n' % (
             self.status.value, self.status.phrase.encode())
@@ -78,12 +106,16 @@ class Response:
             else:
                 body = self.body
 
-            if 'Content-Length' not in self.headers:
+            if self.stream is None and 'Content-Length' not in self.headers:
                 response += b'Content-Length: %i\r\n' % len(body)
 
             response += b'\r\n'
-            if body:
+            if body and self.stream is None:
+                # We don't write the body if there's a stream.
+                # It takes precedence
                 response += body
         else:
             response += b'\r\n'
         return response
+
+    
