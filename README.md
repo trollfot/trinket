@@ -80,7 +80,7 @@ Why ?
 
 I like Curio's async concepts, syntax and philosophy.
 The performances were not a focus on this proof of concept, but they
-are on par with Roll on asyncio.
+are 1/3 slower than Roll on asyncio.
 
 What now ?
 ----------
