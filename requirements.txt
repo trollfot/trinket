@@ -4,3 +4,4 @@ httptools >= 0.0.11
 multifruits >= 0.1.1
 curio >= 0.9
 wsproto >= 0.11.0
+pytest
