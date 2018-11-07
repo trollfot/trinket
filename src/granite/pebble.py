@@ -188,7 +188,7 @@ class Granite:
 
         return handler, params
 
-    #@handler_lifecycle
+    @handler_lifecycle
     async def __call__(self, request: Request):
         try:
             handler, params = await self.lookup(request)
