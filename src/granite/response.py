@@ -12,15 +12,12 @@ from .http import HttpCode, HTTPStatus, Cookies
 
 
 async def file_iterator(path):
-    # Hack to get the asynchroneous file opening without
-    # using the async with, that causes the need for curio.meta.finalize
-    reader = await aopen(path, 'rb').__aenter__()
-    while True:
-        data = await reader.read(4096)
-        if not data:
-            break
-        yield data
-    await reader.close()
+    async with aopen(path, 'rb') as reader:
+        while True:
+            data = await reader.read(4096)
+            if not data:
+                break
+            yield data
 
 
 class Response:

@@ -130,7 +130,7 @@ class Request(dict):
         'form',
         '_query',
         '_read_body_size',
-        '_url',
+        'url',
         'body',
         'headers',
         'keep_alive',
@@ -141,15 +141,17 @@ class Request(dict):
         'upgrade',
     )
 
-    def __init__(self):
+    def __init__(self, **headers):
         self._cookies = None
         self._query = None
         self._read_body_size = 0
-        self._url = None
+        self.url = None
+        self.query_string = None
+        self.path = None
         self.body = b''
         self.files = None
         self.form = None
-        self.headers = {}
+        self.headers = headers
         self.keep_alive = False
         self.method = 'GET'
         self.socket = None
@@ -174,17 +176,6 @@ class Request(dict):
                 ) = await parser(expected, self.socket, self.content_type)
                 if not self._read_body_size:
                     raise TypeError('Empty body !')
-
-    @property
-    def url(self):
-        return self._url
-
-    @url.setter
-    def url(self, url):
-        self._url = url
-        parsed = parse_url(url)
-        self.path = unquote(parsed.path.decode())
-        self.query_string = (parsed.query or b'').decode()
 
     @property
     def cookies(self):

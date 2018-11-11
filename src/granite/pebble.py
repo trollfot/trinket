@@ -5,147 +5,101 @@ from functools import wraps, partial
 from collections import defaultdict
 from collections.abc import AsyncGenerator
 
-from curio import run, spawn, socket, tcp_server
+import curio
 from curio import TaskGroup, SignalEvent
-from autoroutes import Routes
-from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
+from curio import run, spawn, socket, tcp_server
 
+from autoroutes import Routes
+from http_parser.parser import HttpParser
+
+from . import lifecycle
 from .request import Request
 from .response import Response
 from .http import HTTPStatus, HttpError
 from .websockets import Websocket
 
 
-class HTTPParser:
+async def response_handler(client, response):
+    """The bytes representation of the response
+    contains a body only if there's no streaming
+    In a case of a stream, it only contains headers.
+    """
+    await client.sendall(bytes(response))
 
-    __slots__ = ('parser', 'request', 'complete')
-    
-    def __init__(self):
-        self.parser = HttpRequestParser(self)
-        self.complete = False
+    if response.stream is not None:
+        if isinstance(response.stream, AsyncGenerator):
+            async with curio.meta.finalize(response.stream):
+                async for data in response.stream:
+                    await client.sendall(
+                        b"%x\r\n%b\r\n" % (len(data), data))
+        else:
+            for data in response.stream:
+                await client.sendall(
+                    b"%x\r\n%b\r\n" % (len(data), data))
 
-    def data_received(self, data):
-        try:
-            self.parser.feed_data(data)
-        except HttpParserUpgrade as upgrade:
-            self.request.upgrade = True
-
-    def on_header(self, name, value):
-        value = value.decode()
-        if value:
-            name = name.decode().upper()
-            if name in self.request.headers:
-                self.request.headers[name] += ', {}'.format(value)
-            else:
-                self.request.headers[name] = value
-
-    def on_message_begin(self):
-        self.complete = False
-        self.request = Request()
-
-    def on_url(self, url):
-        self.request.url = url
-
-    def on_headers_complete(self):
-        self.request.keep_alive = self.parser.should_keep_alive()
-        self.request.method = self.parser.get_method().decode().upper()
-        self.complete = True
+        await client.sendall(b'0\r\n\r\n')
 
 
-async def read_headers(stream, max_field_size=2**16):
-    httpparser = HTTPParser()
+async def make_request(client):
+    stream = client.makefile('rb')
+    parser = HttpParser()
+    request = None
+
     async for line in stream:
+        # We read by line to avoid reading into the body
+        # The body is handled elsewhere if at all.
         if not line:
             break
-        if len(line) > max_field_size:
-            raise HttpError(
-                HTTPStatus.BAD_REQUEST, 'Request headers too large.')
-        try:
-            httpparser.data_received(line)
-        except HttpParserError as exc:
+        received = len(line)
+        nparsed = parser.execute(line, received)
+        if nparsed != received:
             raise HttpError(
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-        if not line.strip():
-            # End of the headers section.
+
+        if parser.is_headers_complete():
+            request = Request(**parser.get_headers())
+            request.url = parser.get_url()
+            request.path = parser.get_path()
+            request.query_string = parser.get_query_string()
+            request.keep_alive = bool(parser.should_keep_alive())
+            request.upgrade = bool(parser.is_upgrade())
+            request.socket = client
             break
 
-    if httpparser.complete:
-        return httpparser.request
+    return request
 
 
-async def request_handler(app, client, addr):
-    stream = client.makefile('rb')
-    async with client:
+def socket_shield(handler):
+    @wraps(handler)
+    async def shielded_handler(*args, **kwargs):
         try:
-            keep_alive = True
-            client._socket.settimeout(10.0)
-            while keep_alive:
-                try:
-                    request = await read_headers(stream)
-                except HttpError as exc:
-                    await client.sendall(bytes(exc))
-                    continue
-                else:
-                    if request is None:
-                        break
-                    keep_alive = request.keep_alive
-                    request.socket = client
-                    client._socket.settimeout(None)  # Suspend timeout
-                    response = await app(request)
-                    if response:
-                        # Sending the headers
-                        # It sends the body if there's no stream.
-                        await client.sendall(bytes(response))
-                        if response.stream is not None:
-                            if isinstance(response.stream, AsyncGenerator):
-                                async for data in response.stream:
-                                    await client.sendall(
-                                        b"%x\r\n%b\r\n" % (len(data), data))
-                            else:
-                                for data in response.stream:
-                                    await client.sendall(
-                                        b"%x\r\n%b\r\n" % (len(data), data))
-                            await request.socket.sendall(b'0\r\n\r\n')
-
-                    # We need to consume all remaining data unread.
-                    await request.drain()
-
-                finally:
-                    if keep_alive:
-                        # We answered. The socket timeout is reset.
-                        client._socket.settimeout(10.0)
-        except HttpError as exc:
-            # An error occured during the processing of the request.
-            # We write down an error for the client.
-            await client.sendall(bytes(exc))
+            return await handler(*args, **kwargs)
         except (ConnectionResetError, BrokenPipeError):
             # The client disconnected or the network is suddenly
             # unreachable.
             pass
-        except socket.timeout:
-            # Our socket timed out, due to the lack of activity.
-            pass
+    return shielded_handler
 
 
-def handler_lifecycle(func):
-    @wraps(func)
-    async def lifecycle(app, request, *args, **kwargs):
-        response = await app.notify('request', request)
-        if response is None:
-            response = await func(app, request, *args, **kwargs)
-        if response is not None:
-            await app.notify('response', request, response)
-        return response
-    return lifecycle
-
-
-def app_lifecycle(func):
-    @wraps(func)
-    async def lifecycle(app, *args, **kwargs):
-        await app.notify('startup')
-        await func(app, *args, **kwargs)
-        await app.notify('shutdown')
-    return lifecycle
+@socket_shield
+async def request_handler(app, client, addr):
+    keep_alive = True
+    async with client:
+        while keep_alive:
+            try:
+                #request = await curio.ignore_after(5, make_request, client)
+                request = await make_request(client)
+            except HttpError as exc:
+                return await self.client.sendall(bytes(exc))
+            except curio.TaskTimeout:
+                return
+            else:
+                keep_alive = request is not None and request.keep_alive
+                if request is not None:
+                    # We write the response or stream it.
+                    response = await app(request)
+                    await response_handler(client, response)
+                    await request.drain()
 
 
 Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
@@ -171,6 +125,7 @@ class Granite:
 
     async def lookup(self, request: Request):
         payload, params = self.routes.match(request.path)
+
         if not payload:
             raise HttpError(HTTPStatus.NOT_FOUND, request.path)
 
@@ -185,10 +140,10 @@ class Granite:
             raise HttpError(
                 HTTPStatus.UPGRADE_REQUIRED,
                 'This is a websocket endpoint, please upgrade.')
-
+        
         return handler, params
 
-    @handler_lifecycle
+    @lifecycle.handler_events
     async def __call__(self, request: Request):
         try:
             handler, params = await self.lookup(request)
@@ -214,8 +169,9 @@ class Granite:
             @wraps(func)
             async def websocket_handler(request, **params):
                 websocket = Websocket(request)
-                await websocket.upgrade()
+                await websocket.upgrade()                    
                 self.websockets.add(websocket)
+
                 async with TaskGroup(wait=any) as ws:
                     await ws.spawn(func, request, websocket, **params)
                     await ws.spawn(websocket.run)
@@ -232,7 +188,7 @@ class Granite:
         def wrapper(func):
             self.hooks[name].append(func)
         return wrapper
-    
+
     async def notify(self, name, *args, **kwargs):
         if name in self.hooks:
             for hook in self.hooks[name]:
@@ -242,7 +198,7 @@ class Granite:
                     return result
         return None
 
-    @app_lifecycle
+    @lifecycle.server_events
     async def serve(self, host, port):
         print('Granite serving on {}:{}'.format(host, port))
         handler = partial(request_handler, self)
@@ -252,6 +208,6 @@ class Granite:
         print('Please wait. The remaining tasks are being terminated.')
         await server.cancel()
 
-    def start(self, host='127.0.0.1', port=5000, debug=False):
+    def start(self, host='127.0.0.1', port=5000, debug=True):
         run(self.serve, host, port, with_monitor=debug)
         print('Granite is crumbling away...')
