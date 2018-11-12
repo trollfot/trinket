@@ -14,29 +14,24 @@ from granite.http import HTTPStatus, HttpError
 from granite.websockets import Websocket
 
 
-def socket_shield(handler):
-    @wraps(handler)
-    async def shielded_handler(*args, **kwargs):
-        try:
-            return await handler(*args, **kwargs)
-        except (ConnectionResetError, BrokenPipeError):
-            # The client disconnected or the network is suddenly
-            # unreachable.
-            pass
-    return shielded_handler
-
-
-@socket_shield
 async def request_handler(app, client, addr):
     keep_alive = True
-    async with client:
-        while keep_alive:
-            async with ClientRequest(client) as request:
-                keep_alive = request is not None and request.keep_alive
-                if request is not None:
-                    response = await app(request)
-                    await response_handler(client, response)
-                    del response
+    try:
+        async with client:
+            while keep_alive:
+                async with ClientRequest(client) as request:
+                    if request is not None:
+                        keep_alive = request.keep_alive
+                        response = await app(request)
+                        await response_handler(client, response)
+                    else:
+                        # We close the connection.
+                        break
+
+    except (ConnectionResetError, BrokenPipeError):
+        # The client disconnected or the network is suddenly
+        # unreachable.
+        pass
 
 
 Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
@@ -50,15 +45,6 @@ class Granite:
         self.routes = Routes()
         self.websockets = set()
         self.hooks = defaultdict(list)
-
-    async def on_error(self, request: Request, error):
-        response = Response()
-        if not isinstance(error, HttpError):
-            error = HttpError(HTTPStatus.INTERNAL_SERVER_ERROR,
-                              str(error).encode())
-        response.status = error.status
-        response.body = error.message
-        return response
 
     async def lookup(self, request: Request):
         payload, params = self.routes.match(request.path)
@@ -82,11 +68,8 @@ class Granite:
 
     @lifecycle.handler_events
     async def __call__(self, request: Request):
-        try:
-            handler, params = await self.lookup(request)
-            return await handler(request, **params)
-        except Exception as error:
-            return await self.on_error(request, error)
+        handler, params = await self.lookup(request)
+        return await handler(request, **params)
 
     def route(self, path: str, methods: list=None, **extras: dict):
         if methods is None:

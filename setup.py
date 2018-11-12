@@ -17,7 +17,6 @@ install_requires = [
     "curio >= 0.9",
     "wsproto >= 0.12.0",
     "pytest",
-    "http-parser",
     ]
 
 tests_require = [

@@ -5,5 +5,4 @@ multifruits >= 0.1.1
 curio >= 0.9
 wsproto >= 0.12.0
 pytest
--e git+https://github.com/trollfot/http-parser.git#egg=http-parser
 -e .

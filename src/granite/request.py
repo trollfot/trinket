@@ -2,59 +2,106 @@ from urllib.parse import parse_qs
 from biscuits import parse
 from granite.http import HTTPStatus, HttpError, Query
 from granite.parsers import CONTENT_TYPES_PARSERS
-from http_parser.parser import HttpParser
-
-
-async def socket_reader(socket, parser):
-    while not parser.is_message_complete():
-        socket_ttl = socket._socket.gettimeout()
-        socket._socket.settimeout(10)
-        data = await socket.recv(1024)
-        socket._socket.settimeout(socket_ttl)
-        if not data:
-            break
-
-        received = len(data)
-        nparsed = parser.execute(data, received)
-        if nparsed != received:
-            raise HttpError(
-                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-        yield data
+from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
+from httptools import parse_url
+from urllib.parse import parse_qs, unquote
 
 
 class ClientRequest:
 
+    __slots__ = (
+        'parser',
+        'request',
+        'complete',
+        'headers_complete',
+        'socket',
+        'reader',
+    )
+
     def __init__(self, socket):
+        self.complete = False
+        self.headers_complete = False
+        self.parser = HttpRequestParser(self)
+        self.request = None
         self.socket = socket
-        self.parser = HttpParser()
-        self.reader = socket_reader(socket, self.parser)
+        self.reader = self._reader()
+
+    async def read(self):
+        socket_ttl = self.socket._socket.gettimeout()
+        self.socket._socket.settimeout(10)
+        data = await self.socket.recv(1024)
+        self.socket._socket.settimeout(socket_ttl)
+        if data:
+            try:
+                self.data_received(data)
+            except HttpParserError as exc:
+                raise HttpError(
+                    HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+            return data
+
+    async def _reader(self):
+        while not self.complete:
+            data = await self.read()
+            if not data:
+                break
+            yield data
+
+    def data_received(self, data):
+        try:
+            self.parser.feed_data(data)
+        except HttpParserUpgrade as upgrade:
+            self.request.upgrade = True
+
+    def on_header(self, name, value):
+        value = value.decode()
+        if value:
+            name = name.decode().title()
+            if name in self.request.headers:
+                self.request.headers[name] += ', {}'.format(value)
+            else:
+                self.request.headers[name] = value
+
+    def on_body(self, data: bytes):
+        self.request.body += data
+
+    def on_message_begin(self):
+        self.complete = False
+        self.request = Request(self.socket, self)
+
+    def on_message_complete(self):
+        self.complete = True
+
+    def on_url(self, url):
+        self.request.url = url
+        parsed = parse_url(url)
+        self.request.path = unquote(parsed.path.decode())
+        self.request.query_string = (parsed.query or b'').decode()
+
+    def on_headers_complete(self):
+        self.request.keep_alive = self.parser.should_keep_alive()
+        self.request.method = self.parser.get_method().decode().upper()
+        self.headers_complete = True
+
+    async def __aiter__(self):
+        return self.reader
 
     async def __aenter__(self):
-        async for data in self.reader:
-            if self.parser.is_headers_complete():
-                request = Request(
-                    self.socket, self.reader, **self.parser.get_headers())
-                request.url = self.parser.get_url()
-                request.method = self.parser.get_method()
-                request.path = self.parser.get_path()
-                request.query_string = self.parser.get_query_string()
-                request.keep_alive = bool(self.parser.should_keep_alive())
-                request.upgrade = bool(self.parser.is_upgrade())
-
-                if self.parser.is_partial_body():
-                    request.body = self.parser.recv_body()
-                    request.body_size = len(request.body)
-
-                self.request = request
-                return request
-        return None
+        while not self.headers_complete:
+            data = await self.read()
+            if not data:
+                break
+        else:
+            return self.request
 
     async def __aexit__(self, exc_type, exc, tb):
         # Drain and close.
+        # Note that this will problematic for pipelining.
         async for _ in self.reader:
             pass
         else:
             await self.reader.aclose()
+            del self.request
+            del self.parser
 
         if exc is not None:
             if isinstance(exc, HttpError):
@@ -70,7 +117,6 @@ class Request(dict):
         '_query',
         '_reader',
         'body',
-        'body_size',
         'files',
         'form',
         'headers',
@@ -88,7 +134,6 @@ class Request(dict):
         self._query = None
         self._reader = reader
         self.body = b''
-        self.body_size = 0
         self.files = None
         self.form = None
         self.headers = headers
@@ -103,7 +148,6 @@ class Request(dict):
     async def raw_body(self):
         async for data in self._reader:
             self.body += data
-            self.body_size += len(data)
         return self.body
 
     async def parse_body(self):
@@ -118,7 +162,6 @@ class Request(dict):
 
         async for data in self._reader:
             content_parser.send(data)
-            self.body_size += len(data)
 
         self.form, self.files = next(content_parser)
         content_parser.close()
