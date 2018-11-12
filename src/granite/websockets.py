@@ -17,26 +17,19 @@ class Websocket:
         self.incoming = Queue()
 
     async def upgrade(self):
+        data = '{} {} HTTP/1.1\r\n'.format(
+            self.request.method, self.request.url)
+        data += '\r\n'.join(
+            ('{}: {}'.format(k, v)
+             for k, v in self.request.headers.items())) + '\r\n\r\n'
 
-         # Workaround wsproto silly check on the connection header
-         # they forgot that Browsers tend to send 'keep-alive' too.        
-         if 'CONNECTION' in self.request.headers:
-             if 'upgrade' in self.request.headers['CONNECTION'].lower():
-                 self.request.headers['CONNECTION'] = 'upgrade'
-
-         data = '{} {} HTTP/1.1\r\n'.format(
-             self.request.method, self.request.url.decode())
-         data += '\r\n'.join(
-             ('{}: {}'.format(k, v)
-              for k, v in self.request.headers.items())) + '\r\n\r\n'
-
-         data = data.encode()
-         self.protocol.receive_bytes(data)
-         event = next(self.protocol.events())
-         assert isinstance(event, ConnectionRequested)
-         self.protocol.accept(event)
-         data = self.protocol.bytes_to_send()
-         await self.request.socket.sendall(data)
+        data = data.encode()
+        self.protocol.receive_bytes(data)
+        event = next(self.protocol.events())
+        assert isinstance(event, ConnectionRequested)
+        self.protocol.accept(event)
+        data = self.protocol.bytes_to_send()
+        await self.request.socket.sendall(data)
 
     async def send(self, data):
         await self.outgoing.put(data)

@@ -1,137 +1,125 @@
-try:
-    # In case you use json heavily, we recommend installing
-    # https://pypi.python.org/pypi/ujson for better performances.
-    import ujson as json
-    JSONDecodeError = ValueError
-except ImportError:
-    import json as json
-    from json.decoder import JSONDecodeError
-
-from io import BytesIO
+from biscuits import parse
+from granite.http import HTTPStatus, HttpError, Query
+from granite.parsers import CONTENT_TYPES_PARSERS
+from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
+from httptools.parser.errors import HttpParserInvalidMethodError
+from httptools import parse_url
 from urllib.parse import parse_qs, unquote
 
-from biscuits import parse
-from curio.errors import TaskTimeout
-from curio import timeout_after
-from httptools import parse_url
-from multifruits import Parser, extract_filename, parse_content_disposition
 
-from .http import HTTPStatus, HttpError, Form, Files, Query
+class ClientRequest:
 
+    __slots__ = (
+        'parser',
+        'request',
+        'complete',
+        'headers_complete',
+        'socket',
+        'reader',
+        'drainer'
+    )
 
-class Multipart:
-    """Responsible of the parsing of multipart encoded `request.body`."""
+    def __init__(self, socket):
+        self.complete = False
+        self.headers_complete = False
+        self.parser = HttpRequestParser(self)
+        self.request = None
+        self.socket = socket
+        self.reader = self._reader()
+        self.drainer = self._drainer()
 
-    __slots__ = ('form', 'files', '_parser', '_current',
-                 '_current_headers', '_current_params')
+    def data_received(self, data: bytes):
+        try:
+            self.parser.feed_data(data)
+        except HttpParserUpgrade as upgrade:
+            self.request.upgrade = True
+        except (HttpParserError, HttpParserInvalidMethodError) as exc:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+        
+    async def read(self, parse=True):
+        socket_ttl = self.socket._socket.gettimeout()
+        self.socket._socket.settimeout(2)
+        data = await self.socket.recv(1024)
+        self.socket._socket.settimeout(socket_ttl)
+        if data:
+            if parse:
+                self.data_received(data)
+            return data
 
-    def __init__(self, content_type: str):
-        self._parser = Parser(self, content_type.encode())
-        self.form = Form()
-        self.files = Files()
+    async def _reader(self):
+        while not self.complete:
+            data = await self.read()
+            if not data:
+                break
+            yield data
 
-    def feed_data(self, data: bytes):
-        self._parser.feed_data(data)
+    async def _drainer(self):
+        while True:
+            data = await self.read(parse=False)
+            if not data:
+                break
+            yield data
 
-    def on_part_begin(self):
-        self._current_headers = {}
+    def on_header(self, name, value):
+        value = value.decode()
+        if value:
+            name = name.decode().title()
+            if name in self.request.headers:
+                self.request.headers[name] += ', {}'.format(value)
+            else:
+                self.request.headers[name] = value
 
-    def on_header(self, field: bytes, value: bytes):
-        self._current_headers[field] = value
+    def on_body(self, data: bytes):
+        self.request.body += data
+
+    def on_message_begin(self):
+        self.complete = False
+        self.request = Request(self.socket, self.reader)
+
+    def on_message_complete(self):
+        self.complete = True
+
+    def on_url(self, url):
+        self.request.url = url
+        parsed = parse_url(url)
+        self.request.path = unquote(parsed.path.decode())
+        self.request.query_string = (parsed.query or b'').decode()
 
     def on_headers_complete(self):
-        disposition_type, params = parse_content_disposition(
-            self._current_headers.get(b'Content-Disposition'))
-        if not disposition_type:
-            return
-        self._current_params = params
-        if b'Content-Type' in self._current_headers:
-            self._current = BytesIO()
-            self._current.filename = extract_filename(params)
-            self._current.content_type = self._current_headers[b'Content-Type']
-            self._current.params = params
-        else:
-            self._current = ''
+        self.request.keep_alive = self.parser.should_keep_alive()
+        self.request.method = self.parser.get_method().decode().upper()
+        self.headers_complete = True
 
-    def on_data(self, data: bytes):
-        if b'Content-Type' in self._current_headers:
-            self._current.write(data)
-        else:
-            self._current += data.decode()
-
-    def on_part_complete(self):
-        name = self._current_params.get(b'name', b'').decode()
-        if b'Content-Type' in self._current_headers:
-            if name not in self.files:
-                self.files[name] = []
-            self._current.seek(0)
-            self.files[name].append(self._current)
-        else:
-            if name not in self.form:
-                self.form[name] = []
-            self.form[name].append(self._current)
-        self._current = None
-
-
-async def multipart(expected_size, socket, content_type):
-    try:
-        read = 0
-        parser = Multipart(content_type)
-        while read < expected_size:
-            try:
-                chunk = await timeout_after(2, socket.recv, 4096)
-                parser.feed_data(chunk)
-                read += len(chunk)
-            except TaskTimeout:
+    async def __aenter__(self):
+        while not self.headers_complete:
+            data = await self.read()
+            if not data:
                 break
+        else:
+            return self.request
 
-            if not chunk:
-                break
-            
-        return read, parser.form, parser.files
-    except ValueError:
-        raise HttpError(HTTPStatus.BAD_REQUEST,
-                        'Unparsable multipart body')
-
-
-async def url_encoded(expected_size, socket, *args):
-
-    read = 0
-    data = b''
-    while read < expected_size:
-        try:
-            chunk = await timeout_after(2, socket.recv, 4096)
-            if not chunk:
-                break
-        except TaskTimeout:
-            break
-
-        read += len(chunk)
-        data += chunk
-
-    try:
-        parsed = parse_qs(data, keep_blank_values=True, strict_parsing=True)
-        return read, Form(parsed), Files()
-    except ValueError:
-        raise HttpError(HTTPStatus.BAD_REQUEST,
-                        'Unparsable urlencoded body')
+    async def __aexit__(self, exc_type, exc, tb):
+        # Drain and close.
+        # Note that this will problematic for pipelining.
+        if self.request:
+            # We drain if there's a request.
+            # If not, the socket will be terminated anyway.
+            async for _ in self.drainer:
+                pass
+            await self.reader.aclose()
+            await self.drainer.aclose()
 
 
 class Request(dict):
 
-    COMPLEX_CONTENT_TYPES = {
-        'multipart/form-data': multipart,
-        'application/x-www-form-urlencoded': url_encoded,
-        }
-    
     __slots__ = (
         '_cookies',
+        '_query',
+        '_reader',
+        'body',
         'files',
         'form',
-        '_query',
-        '_read_body_size',
-        '_url',
-        'body',
         'headers',
         'keep_alive',
         'method',
@@ -139,57 +127,50 @@ class Request(dict):
         'query_string',
         'socket',
         'upgrade',
+        'url'
     )
 
-    def __init__(self):
+    def __init__(self, socket, reader, **headers):
         self._cookies = None
         self._query = None
-        self._read_body_size = 0
-        self._url = None
+        self._reader = reader
         self.body = b''
         self.files = None
         self.form = None
-        self.headers = {}
+        self.headers = headers
         self.keep_alive = False
         self.method = 'GET'
-        self.socket = None
+        self.path = None
+        self.query_string = None
+        self.socket = socket
         self.upgrade = False
+        self.url = None
 
-    async def drain(self):
-        expected = int(self.headers.get('CONTENT-LENGTH', 0))
-        if expected and expected > self._read_body_size:
-            # We didn't read everything
-            # We need to drain the unread data.
-            await self.socket.recv(expected - self._read_body_size)
+    async def raw_body(self):
+        async for data in self._reader:
+            self.body += data
+        return self.body
 
     async def parse_body(self):
-        expected = int(self.headers.get('CONTENT-LENGTH', 0))
-        if not self._read_body_size and expected:
-            disposition = self.content_type.split(';', 1)[0]
-            parser = self.COMPLEX_CONTENT_TYPES.get(disposition)
-            if parser is None:
-                raise NotImplementedError("Don't know how to parse")
-            else:
-                (self._read_body_size, self.form, self.files
-                ) = await parser(expected, self.socket, self.content_type)
-                if not self._read_body_size:
-                    raise TypeError('Empty body !')
+        disposition = self.content_type.split(';', 1)[0]
+        parser_type = CONTENT_TYPES_PARSERS.get(disposition)
+        if parser_type is None:
+            raise NotImplementedError(f"Don't know how to parse {disposition}")
+        content_parser = parser_type(self.content_type)
+        next(content_parser)
+        if self.body:
+            content_parser.send(self.body)
 
-    @property
-    def url(self):
-        return self._url
+        async for data in self._reader:
+            content_parser.send(data)
 
-    @url.setter
-    def url(self, url):
-        self._url = url
-        parsed = parse_url(url)
-        self.path = unquote(parsed.path.decode())
-        self.query_string = (parsed.query or b'').decode()
+        self.form, self.files = next(content_parser)
+        content_parser.close()
 
     @property
     def cookies(self):
         if self._cookies is None:
-            self._cookies = parse(self.headers.get('COOKIE', ''))
+            self._cookies = parse(self.headers.get('Cookie', ''))
         return self._cookies
 
     @property
@@ -201,8 +182,8 @@ class Request(dict):
 
     @property
     def content_type(self):
-        return self.headers.get('CONTENT-TYPE', '')
+        return self.headers.get('Content-Type', '')
 
     @property
     def host(self):
-        return self.headers.get('HOST', '')
+        return self.headers.get('Host', '')

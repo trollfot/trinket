@@ -1,3 +1,3 @@
-from .pebble import Granite
+from .app import Granite
 from .request import Request
 from .response import Response

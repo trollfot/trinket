@@ -1,13 +1,14 @@
 import pytest
 from socket import AF_INET, SOCK_STREAM
-from granite import pebble
+from granite.app import Granite
+from granite.handler import request_handler
 from curio import network, spawn, socket, tcp_server, sleep
 from functools import partial
 
 
 @pytest.fixture
 def app():
-    return pebble.Granite()
+    return Granite()
 
 
 def test_simple_request(app, kernel):
@@ -31,7 +32,7 @@ def test_simple_request(app, kernel):
         )
 
     async def main():
-        handler = partial(pebble.request_handler, app)
+        handler = partial(request_handler, app)
         server_task = await spawn(tcp_server, '127.0.0.1', 10000, handler)
 
         c = await spawn(client, ('localhost', 10000))

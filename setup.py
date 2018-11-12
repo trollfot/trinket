@@ -9,7 +9,15 @@ def read(filename):
         return f.read()
 
 
-install_requires = read('requirements.txt').split('\n')
+install_requires = [
+    "autoroutes >= 0.2.0",
+    "biscuits >= 0.1.1",
+    "httptools >= 0.0.11",
+    "multifruits >= 0.1.1",
+    "curio >= 0.9",
+    "wsproto >= 0.12.0",
+    "pytest",
+    ]
 
 tests_require = [
     

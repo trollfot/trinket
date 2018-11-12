@@ -1,0 +1,8 @@
+from .multipart import Multipart, read_multipart
+from .urlencoded import read_urlencoded
+
+
+CONTENT_TYPES_PARSERS = {
+    'multipart/form-data': read_multipart,
+    'application/x-www-form-urlencoded': read_urlencoded,
+}
