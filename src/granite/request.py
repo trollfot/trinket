@@ -2,6 +2,7 @@ from biscuits import parse
 from granite.http import HTTPStatus, HttpError, Query
 from granite.parsers import CONTENT_TYPES_PARSERS
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
+from httptools.parser.errors import HttpParserInvalidMethodError
 from httptools import parse_url
 from urllib.parse import parse_qs, unquote
 
@@ -27,6 +28,15 @@ class ClientRequest:
         self.reader = self._reader()
         self.drainer = self._drainer()
 
+    def data_received(self, data: bytes):
+        try:
+            self.parser.feed_data(data)
+        except HttpParserUpgrade as upgrade:
+            self.request.upgrade = True
+        except (HttpParserError, HttpParserInvalidMethodError) as exc:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+        
     async def read(self, parse=True):
         socket_ttl = self.socket._socket.gettimeout()
         self.socket._socket.settimeout(2)
@@ -34,13 +44,7 @@ class ClientRequest:
         self.socket._socket.settimeout(socket_ttl)
         if data:
             if parse:
-                try:
-                    self.parser.feed_data(data)
-                except HttpParserUpgrade as upgrade:
-                    self.request.upgrade = True
-                except HttpParserError as exc:
-                    raise HttpError(
-                        HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+                self.data_received(data)
             return data
 
     async def _reader(self):

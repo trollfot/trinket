@@ -1,11 +1,11 @@
 import pytest
-from granite.pebble import HTTPParser
-from httptools.parser.errors import HttpParserInvalidMethodError
+from granite.request import ClientRequest
+from granite.http import HttpError
 
 
 @pytest.fixture
 def parser():
-    return HTTPParser()
+    return ClientRequest(None)
 
 
 def test_request_parse_simple_get_response(parser):
@@ -24,7 +24,7 @@ def test_request_parse_simple_get_response(parser):
         b'\r\n')
     assert parser.request.method == 'GET'
     assert parser.request.path == '/feeds'
-    assert parser.request.headers['ACCEPT'] == '*/*'
+    assert parser.request.headers['Accept'] == '*/*'
     assert parser.complete is True
 
 
@@ -42,10 +42,10 @@ def test_request_headers_are_uppercased(parser):
         b'DNT: 1\r\n'
         b'Connection: keep-alive\r\n'
         b'\r\n')
-    assert parser.request.headers['ACCEPT-LANGUAGE'] == 'en-US,en;q=0.5'
-    assert parser.request.headers['ACCEPT'] == '*/*'
-    assert parser.request.headers.get('HOST') == 'localhost:1707'
-    assert 'DNT' in parser.request.headers
+    assert parser.request.headers['Accept-Language'] == 'en-US,en;q=0.5'
+    assert parser.request.headers['Accept'] == '*/*'
+    assert parser.request.headers.get('Host') == 'localhost:1707'
+    assert 'Dnt' in parser.request.headers
     assert parser.request.headers.get('accept') is None
     assert parser.complete is True
 
@@ -125,8 +125,7 @@ def test_request_host_shortcut(parser):
 
 
 def test_malformed_request(parser):
-
-    with pytest.raises(HttpParserInvalidMethodError):
+    with pytest.raises(HttpError):
         parser.data_received(
             b'Batushka'
             b'\r\n'
