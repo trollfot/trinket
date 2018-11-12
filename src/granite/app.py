@@ -1,4 +1,5 @@
 import signal
+import socket
 from functools import wraps, partial
 from collections import defaultdict
 
@@ -8,30 +9,11 @@ from curio import run, spawn, socket, tcp_server
 from autoroutes import Routes
 
 from granite import lifecycle
+from granite.handler import request_handler
 from granite.request import ClientRequest, Request
 from granite.response import Response, response_handler
 from granite.http import HTTPStatus, HttpError
 from granite.websockets import Websocket
-
-
-async def request_handler(app, client, addr):
-    keep_alive = True
-    try:
-        async with client:
-            while keep_alive:
-                async with ClientRequest(client) as request:
-                    if request is not None:
-                        keep_alive = request.keep_alive
-                        response = await app(request)
-                        await response_handler(client, response)
-                    else:
-                        # We close the connection.
-                        break
-
-    except (ConnectionResetError, BrokenPipeError):
-        # The client disconnected or the network is suddenly
-        # unreachable.
-        pass
 
 
 Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)

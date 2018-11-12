@@ -1,4 +1,3 @@
-from urllib.parse import parse_qs
 from biscuits import parse
 from granite.http import HTTPStatus, HttpError, Query
 from granite.parsers import CONTENT_TYPES_PARSERS
@@ -16,6 +15,7 @@ class ClientRequest:
         'headers_complete',
         'socket',
         'reader',
+        'drainer'
     )
 
     def __init__(self, socket):
@@ -25,18 +25,22 @@ class ClientRequest:
         self.request = None
         self.socket = socket
         self.reader = self._reader()
+        self.drainer = self._drainer()
 
-    async def read(self):
+    async def read(self, parse=True):
         socket_ttl = self.socket._socket.gettimeout()
-        self.socket._socket.settimeout(10)
+        self.socket._socket.settimeout(2)
         data = await self.socket.recv(1024)
         self.socket._socket.settimeout(socket_ttl)
         if data:
-            try:
-                self.data_received(data)
-            except HttpParserError as exc:
-                raise HttpError(
-                    HTTPStatus.BAD_REQUEST, 'Unparsable request.')
+            if parse:
+                try:
+                    self.parser.feed_data(data)
+                except HttpParserUpgrade as upgrade:
+                    self.request.upgrade = True
+                except HttpParserError as exc:
+                    raise HttpError(
+                        HTTPStatus.BAD_REQUEST, 'Unparsable request.')
             return data
 
     async def _reader(self):
@@ -46,11 +50,12 @@ class ClientRequest:
                 break
             yield data
 
-    def data_received(self, data):
-        try:
-            self.parser.feed_data(data)
-        except HttpParserUpgrade as upgrade:
-            self.request.upgrade = True
+    async def _drainer(self):
+        while True:
+            data = await self.read(parse=False)
+            if not data:
+                break
+            yield data
 
     def on_header(self, name, value):
         value = value.decode()
@@ -66,7 +71,7 @@ class ClientRequest:
 
     def on_message_begin(self):
         self.complete = False
-        self.request = Request(self.socket, self)
+        self.request = Request(self.socket, self.reader)
 
     def on_message_complete(self):
         self.complete = True
@@ -82,9 +87,6 @@ class ClientRequest:
         self.request.method = self.parser.get_method().decode().upper()
         self.headers_complete = True
 
-    async def __aiter__(self):
-        return self.reader
-
     async def __aenter__(self):
         while not self.headers_complete:
             data = await self.read()
@@ -96,22 +98,17 @@ class ClientRequest:
     async def __aexit__(self, exc_type, exc, tb):
         # Drain and close.
         # Note that this will problematic for pipelining.
-        async for _ in self.reader:
-            pass
-        else:
+        if self.request:
+            # We drain if there's a request.
+            # If not, the socket will be terminated anyway.
+            async for _ in self.drainer:
+                pass
             await self.reader.aclose()
-            del self.request
-            del self.parser
-
-        if exc is not None:
-            if isinstance(exc, HttpError):
-                await self.socket.sendall(bytes(exc))
-            else:
-                raise exc
+            await self.drainer.aclose()
 
 
 class Request(dict):
-    
+
     __slots__ = (
         '_cookies',
         '_query',
