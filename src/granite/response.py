@@ -1,4 +1,3 @@
-
 import os
 try:
     # In case you use json heavily, we recommend installing
@@ -7,8 +6,9 @@ try:
 except ImportError:
     import json as json
 
+from collections.abc import AsyncGenerator
 from curio import aopen
-from .http import HttpCode, HTTPStatus, Cookies
+from granite.http import HttpCode, HTTPStatus, Cookies
 
 
 async def file_iterator(path):
@@ -18,6 +18,27 @@ async def file_iterator(path):
             if not data:
                 break
             yield data
+
+
+async def response_handler(client, response):
+    """The bytes representation of the response
+    contains a body only if there's no streaming
+    In a case of a stream, it only contains headers.
+    """
+    await client.sendall(bytes(response))
+
+    if response.stream is not None:
+        if isinstance(response.stream, AsyncGenerator):
+            async with curio.meta.finalize(response.stream):
+                async for data in response.stream:
+                    await client.sendall(
+                        b"%x\r\n%b\r\n" % (len(data), data))
+        else:
+            for data in response.stream:
+                await client.sendall(
+                    b"%x\r\n%b\r\n" % (len(data), data))
+
+        await client.sendall(b'0\r\n\r\n')
 
 
 class Response:

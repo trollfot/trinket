@@ -1,124 +1,18 @@
-# -*- coding: utf-8 -*-
-
 import signal
 from functools import wraps, partial
 from collections import defaultdict
-from collections.abc import AsyncGenerator
 
 import curio
 from curio import TaskGroup, SignalEvent
 from curio import run, spawn, socket, tcp_server
-
 from autoroutes import Routes
-from http_parser.parser import HttpParser
 
 from granite import lifecycle
-from granite.request import Request
-from granite.response import Response
+from granite.request import ClientRequest, Request
+from granite.response import Response, response_handler
 from granite.http import HTTPStatus, HttpError
 from granite.websockets import Websocket
-from granite.parsers import CONTENT_TYPES_PARSERS
 
-
-async def response_handler(client, response):
-    """The bytes representation of the response
-    contains a body only if there's no streaming
-    In a case of a stream, it only contains headers.
-    """
-    await client.sendall(bytes(response))
-
-    if response.stream is not None:
-        if isinstance(response.stream, AsyncGenerator):
-            async with curio.meta.finalize(response.stream):
-                async for data in response.stream:
-                    await client.sendall(
-                        b"%x\r\n%b\r\n" % (len(data), data))
-        else:
-            for data in response.stream:
-                await client.sendall(
-                    b"%x\r\n%b\r\n" % (len(data), data))
-
-        await client.sendall(b'0\r\n\r\n')
-
-
-async def read_request_body(request, http_parser, flush=False):
-
-    if http_parser.is_message_complete():
-        # This request is already handled.
-        return
-
-    if not flush:
-        disposition = request.content_type.split(';', 1)[0]
-        parser_type = CONTENT_TYPES_PARSERS.get(disposition)
-        if parser_type is None:
-            raise NotImplementedError(f"Don't know how to parse {disposition}")
-        content_parser = parser_type(request.content_type)
-        next(content_parser)
-        if request.body:
-            # if there's already a piece of body
-            # parse it.
-            content_parser.send(request.body)  
-
-    while True:
-        socket_ttl = request.socket._socket.gettimeout()
-        request.socket._socket.settimeout(10)
-        data = await request.socket.recv(1024)
-        request.socket._socket.settimeout(socket_ttl)
-        if not data:
-            break
-
-        received = len(data)
-        request.body_size += received
-        nparsed = http_parser.execute(data, received)
-        if nparsed != received:
-            raise HttpError(
-                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-
-        if not flush:
-            content_parser.send(data)
-
-        if http_parser.is_message_complete():
-            if not flush:
-                request.form, request.files = next(content_parser)
-                content_parser.close()
-            break
-
-
-async def make_request(client):
-    parser = HttpParser()
-    while True:
-        socket_ttl = client._socket.gettimeout()
-        client._socket.settimeout(10)
-        data = await client.recv(1024)
-        client._socket.settimeout(socket_ttl)
-        if not data:
-            break
-        received = len(data)
-        nparsed = parser.execute(data, received)
-
-        if nparsed != received:
-            raise HttpError(
-                HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-
-        if parser.is_headers_complete():
-            request = Request(**parser.get_headers())
-            request.url = parser.get_url()
-            request.method = parser.get_method()
-            request.path = parser.get_path()
-            request.query_string = parser.get_query_string()
-            request.keep_alive = bool(parser.should_keep_alive())
-            request.upgrade = bool(parser.is_upgrade())
-            request.socket = client
-            request.parse_body = partial(read_request_body, request, parser)
-
-            if parser.is_partial_body():
-                # We read past the headers
-                # Save the chunk we currently got.
-                request.body = parser.recv_body()
-                request.body_size = len(request.body)
-
-            return request
-                
 
 def socket_shield(handler):
     @wraps(handler)
@@ -137,19 +31,12 @@ async def request_handler(app, client, addr):
     keep_alive = True
     async with client:
         while keep_alive:
-            try:
-                request = await make_request(client)
-            except HttpError as exc:
-                return await client.sendall(bytes(exc))
-            except curio.TaskTimeout:
-                return
-            else:
+            async with ClientRequest(client) as request:
                 keep_alive = request is not None and request.keep_alive
                 if request is not None:
-                    # We write the response or stream it.
                     response = await app(request)
                     await response_handler(client, response)
-                    await request.parse_body(flush=True)
+                    del response
 
 
 Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
