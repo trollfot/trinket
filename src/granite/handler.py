@@ -1,26 +1,19 @@
 import socket
-from granite.request import ClientRequest, Request
+from curio import Queue
+from granite.request import Channel, Request
 from granite.response import Response, response_handler
-from granite.http import HTTPStatus, HttpError
+from granite.http import HTTPStatus, HTTPError
 
 
 async def request_handler(app, client, addr):
-    keep_alive = True
     try:
         async with client:
-            while keep_alive:
-                try:
-                    async with ClientRequest(client) as request:
-                        if request is not None:
-                            keep_alive = request.keep_alive
-                            response = await app(request)
-                        else:
-                            # We close the connection.
-                            break
+            try:
+                async for request in Channel(client):
+                    response = await app(request)
                     await response_handler(client, response)
-                except HttpError as exc:
-                    await client.sendall(bytes(exc))
-
+            except HTTPError as exc:
+                await client.sendall(bytes(exc))
     except (ConnectionResetError, BrokenPipeError, socket.timeout):
         # The client disconnected or the network is suddenly
         # unreachable.

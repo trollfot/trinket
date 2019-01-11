@@ -10,9 +10,9 @@ from autoroutes import Routes
 
 from granite import lifecycle
 from granite.handler import request_handler
-from granite.request import ClientRequest, Request
+from granite.request import Request
 from granite.response import Response, response_handler
-from granite.http import HTTPStatus, HttpError
+from granite.http import HTTPStatus, HTTPError
 from granite.websockets import Websocket
 
 
@@ -32,17 +32,17 @@ class Granite:
         payload, params = self.routes.match(request.path)
 
         if not payload:
-            raise HttpError(HTTPStatus.NOT_FOUND, request.path)
+            raise HTTPError(HTTPStatus.NOT_FOUND, request.path)
 
         # Uppercased in order to only consider HTTP verbs.
         handler = payload.get(request.method.upper(), None)
         if handler is None:
-            raise HttpError(HTTPStatus.METHOD_NOT_ALLOWED)
+            raise HTTPError(HTTPStatus.METHOD_NOT_ALLOWED)
 
         # We check if the route is for a websocket handler.
         # If it is, we make sure we were asked for an upgrade.
         if payload.get('websocket', False) and not request.upgrade:
-            raise HttpError(
+            raise HTTPError(
                 HTTPStatus.UPGRADE_REQUIRED,
                 'This is a websocket endpoint, please upgrade.')
         

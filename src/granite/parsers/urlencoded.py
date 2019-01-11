@@ -1,4 +1,4 @@
-from granite.http import Form, Files, HttpError, HTTPStatus
+from granite.http import Form, Files, HTTPError, HTTPStatus
 from urllib.parse import parse_qs
 
 
@@ -11,7 +11,7 @@ def read_urlencoded(content_type):
                 parsed = parse_qs(
                     data, keep_blank_values=True, strict_parsing=True)
             except ValueError:
-                raise HttpError(
+                raise HTTPError(
                     HTTPStatus.BAD_REQUEST,
                     'Unparsable urlencoded body')
             yield Form(parsed), Files()

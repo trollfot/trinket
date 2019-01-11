@@ -9,11 +9,11 @@ from multifruits import Parser, extract_filename, parse_content_disposition
 HTTPCode = TypeVar('HTTPCode', HTTPStatus, int)
 
 
-class HttpError(Exception):
+class HTTPError(Exception):
     """Exception meant to be raised when an error is occurring.
 
     E.g.:
-        Within your view `raise HttpError(HTTPStatus.BAD_REQUEST)` will
+        Within your view `raise HTTPError(HTTPStatus.BAD_REQUEST)` will
         direcly return a 400 HTTP status code with descriptive content.
     """
 
@@ -46,7 +46,7 @@ class Multidict(dict):
             return self[key]
         except KeyError:
             if default is ... or default == [...]:
-                raise HttpError(HTTPStatus.BAD_REQUEST,
+                raise HTTPError(HTTPStatus.BAD_REQUEST,
                                 "Missing '{}' key".format(key))
             return default
 
@@ -73,7 +73,7 @@ class Query(Multidict):
             return False
         elif value in self.NONE_STRINGS:
             return None
-        raise HttpError(
+        raise HTTPError(
             HTTPStatus.BAD_REQUEST,
             "Wrong boolean value for '{}={}'".format(key, self.get(key)))
 
@@ -81,14 +81,14 @@ class Query(Multidict):
         try:
             return int(self.get(key, default))
         except ValueError:
-            raise HttpError(HTTPStatus.BAD_REQUEST,
+            raise HTTPError(HTTPStatus.BAD_REQUEST,
                             "Key '{}' must be castable to int".format(key))
 
     def float(self, key: str, default=...):
         try:
             return float(self.get(key, default))
         except ValueError:
-            raise HttpError(HTTPStatus.BAD_REQUEST,
+            raise HTTPError(HTTPStatus.BAD_REQUEST,
                             "Key '{}' must be castable to float".format(key))
 
 

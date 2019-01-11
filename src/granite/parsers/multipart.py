@@ -2,7 +2,7 @@ import socket
 from io import BytesIO
 from urllib.parse import parse_qs, unquote
 from multifruits import Parser, extract_filename, parse_content_disposition
-from granite.http import Form, Files, HttpError, HTTPStatus
+from granite.http import Form, Files, HTTPError, HTTPStatus
 
 
 class Multipart:
@@ -75,6 +75,6 @@ def read_multipart(content_type):
         try:
             parser.feed_data(chunk)
         except ValueError:
-            raise HttpError(
+            raise HTTPError(
                 HTTPStatus.BAD_REQUEST,
                 'Unparsable multipart body')
