@@ -1,4 +1,3 @@
-
 from http import HTTPStatus
 from io import BytesIO
 from typing import TypeVar
@@ -7,7 +6,7 @@ from biscuits import Cookie
 from multifruits import Parser, extract_filename, parse_content_disposition
 
 
-HttpCode = TypeVar('HttpCode', HTTPStatus, int)
+HTTPCode = TypeVar('HTTPCode', HTTPStatus, int)
 
 
 class HttpError(Exception):
@@ -20,7 +19,7 @@ class HttpError(Exception):
 
     __slots__ = ('status', 'message')
 
-    def __init__(self, http_code: HttpCode, message=None):
+    def __init__(self, http_code: HTTPCode, message=None):
         # Idempotent if `http_code` is already an `HTTPStatus` instance.
         self.status = HTTPStatus(http_code)
         if isinstance(message, str):

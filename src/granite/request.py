@@ -16,7 +16,6 @@ class ClientRequest:
         'headers_complete',
         'socket',
         'reader',
-        'drainer'
     )
 
     def __init__(self, socket):
@@ -26,7 +25,6 @@ class ClientRequest:
         self.request = None
         self.socket = socket
         self.reader = self._reader()
-        self.drainer = self._drainer()
 
     def data_received(self, data: bytes):
         try:
@@ -100,15 +98,12 @@ class ClientRequest:
             return self.request
 
     async def __aexit__(self, exc_type, exc, tb):
-        # Drain and close.
-        # Note that this will problematic for pipelining.
         if self.request:
-            # We drain if there's a request.
-            # If not, the socket will be terminated anyway.
-            async for _ in self.drainer:
-                pass
             await self.reader.aclose()
-            await self.drainer.aclose()
+            if not self.complete:
+                # We drain if there's an uncomplete request.
+                async for _ in self._drainer():
+                    pass
 
 
 class Request(dict):

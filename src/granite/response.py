@@ -8,7 +8,7 @@ except ImportError:
 
 from collections.abc import AsyncGenerator
 from curio import aopen
-from granite.http import HttpCode, HTTPStatus, Cookies
+from granite.http import HTTPCode, HTTPStatus, Cookies
 
 
 async def file_iterator(path):
@@ -67,7 +67,7 @@ class Response:
         return self._status
 
     @status.setter
-    def status(self, http_code: HttpCode):
+    def status(self, http_code: HTTPCode):
         # Idempotent if `http_code` is already an `HTTPStatus` instance.
         self._status = HTTPStatus(http_code)
         self.bodyless = self._status in self.BODYLESS_STATUSES
