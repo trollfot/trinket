@@ -1,11 +1,11 @@
 import pytest
-from granite.request import ClientRequest
-from granite.http import HttpError
+from granite.request import Channel
+from granite.http import HTTPError
 
 
 @pytest.fixture
 def parser():
-    return ClientRequest(None)
+    return Channel(None)
 
 
 def test_request_parse_simple_get_response(parser):
@@ -125,7 +125,7 @@ def test_request_host_shortcut(parser):
 
 
 def test_malformed_request(parser):
-    with pytest.raises(HttpError):
+    with pytest.raises(HTTPError):
         parser.data_received(
             b'Batushka'
             b'\r\n'
