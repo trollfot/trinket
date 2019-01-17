@@ -103,3 +103,19 @@ async def test_websocket_failure(app, client):
 
     assert ws.closure.code == CloseReason(1011)
     assert ws.closure.reason == 'Task died prematurely.'
+
+
+@pytest.mark.curio
+async def test_websocket_closure_from_within(app, client):
+
+    @app.websocket('/failure')
+    async def failme(request, ws, **params):
+        await ws.close()
+        await ws.recv()
+
+    async with client:
+        async with client.websocket('/failure') as ws:
+            await ws.send(b'This shall never be received.')
+
+    assert ws.closure.code == CloseReason(1000)
+    assert ws.closure.reason == 'Closed.'
