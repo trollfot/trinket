@@ -10,7 +10,6 @@ Installation
 Trinket requires python3.7+
 
     $> git clone https://github.com/trollfot/trinket.git
-    $> cd trinket
     $> python3.7 -m venv trinket_env
     $> source trinket_env/bin/activate
     $> pip install -e trinket trinket[test]
