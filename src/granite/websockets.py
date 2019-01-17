@@ -1,5 +1,5 @@
 from abc import ABC
-from curio import socket, Queue, Event, TaskGroupError, TaskGroup, TaskCancelled
+from curio import socket, Queue, Event, TaskGroup
 from granite.http import HTTPStatus, HTTPError
 from wsproto.connection import WSConnection, SERVER
 from wsproto import events
@@ -96,10 +96,6 @@ class WebsocketPrototype(ABC):
                 else:
                     await self.close()                    
                 await outgoing.join()
-            try:
-                await self.socket.shutdown(socket.SHUT_RDWR)
-            except socket.error:
-                pass
 
 
 class Websocket(WebsocketPrototype):

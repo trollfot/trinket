@@ -15,12 +15,11 @@ install_requires = [
     "httptools >= 0.0.11",
     "multifruits >= 0.1.1",
     "curio >= 0.9",
-    "wsproto >= 0.12.0",
-    "pytest",
+    "wsproto >= 0.12.0"
     ]
 
 tests_require = [
-    
+    "pytest",
     ]
 
 setup(name='granite',
@@ -38,5 +37,7 @@ setup(name='granite',
       zip_safe=False,
       install_requires=install_requires,
       extras_require={'test': tests_require},
-      entry_points="",
+      entry_points={
+          'pytest11': ['granite=granite.testing'],
+      }
       )
