@@ -1,17 +1,14 @@
 import signal
-import socket
 from functools import wraps, partial
 from collections import defaultdict
 
-import curio
-from curio import TaskGroup, TaskGroupError, SignalEvent
-from curio import run, spawn, socket, tcp_server
+from curio import SignalEvent
+from curio import run, spawn, tcp_server
 from autoroutes import Routes
 
 from granite import lifecycle
 from granite.handler import request_handler
 from granite.request import Request
-from granite.response import Response, response_handler
 from granite.http import HTTPStatus, HTTPError
 from granite.websockets import Websocket
 
@@ -73,7 +70,7 @@ class Granite:
                 websocket = Websocket(request.socket)
                 await websocket.upgrade(request)
                 self.websockets.add(websocket)
-                task = await spawn(websocket.handler, func, request, params)
+                task = await spawn(func, request, websocket, **params)
                 await websocket.flow(task)
                 self.websockets.discard(websocket)
 
@@ -89,7 +86,7 @@ class Granite:
             self.hooks[name].append(func)
         return wrapper
 
-    async def notify(self, name, *args, **kwargs):
+    async def notify(self, name: str, *args, **kwargs):
         if name in self.hooks:
             for hook in self.hooks[name]:
                 result = await hook(*args, **kwargs)
@@ -102,7 +99,7 @@ class Granite:
     async def serve(self, host, port):
         print('Granite serving on {}:{}'.format(host, port))
         handler = partial(request_handler, self)
-        server = await spawn(tcp_server, host, port, handler)
+        server = await spawn(tcp_server(host, port, handler))
         await Goodbye.wait()
         print('Server is shutting down.')
         print('Please wait. The remaining tasks are being terminated.')

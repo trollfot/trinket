@@ -1,14 +1,8 @@
-import inspect
-import logging
 import http.client
 from contextlib import asynccontextmanager
-from functools import partial
 
 import pytest
 import curio
-
-from curio.debug import longblock, logcrash
-from curio.socket import AF_INET, SOCK_STREAM
 
 from granite.app import Granite
 from granite.websockets import WebsocketPrototype
@@ -21,7 +15,8 @@ class Websocket(WebsocketPrototype):
     def __init__(self, host, path):
         super().__init__()
         self.host = host
-        self.socket = curio.socket.socket(AF_INET, SOCK_STREAM)
+        self.socket = curio.socket.socket(
+            curio.socket.AF_INET, curio.socket.SOCK_STREAM)
         self.protocol = WSConnection(CLIENT, host, path)
 
     async def connect(self, host, port):
@@ -74,7 +69,7 @@ class LiveClient:
         yield ws
         try:
             await ws.socket.shutdown(curio.socket.SHUT_RDWR)
-        except socket.error:
+        except curio.socket.error:
             # socket was killed.
             pass
         await task.join()
@@ -83,11 +78,6 @@ class LiveClient:
 @pytest.fixture
 def app():
     return Granite()
-
-
-@pytest.fixture
-def client(app):
-    return LiveClient(app)
 
 
 @pytest.fixture

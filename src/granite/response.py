@@ -1,8 +1,7 @@
-import os
 try:
     # In case you use json heavily, we recommend installing
-    # https://pypi.python.org/pypi/ujson for better performances.
-    import ujson as json
+    # https://pypi.org/project/python-rapidjson for better performances.
+    import rapidjson as json
 except ImportError:
     import json as json
 
@@ -104,7 +103,7 @@ class Response:
         if self._cookies is None:
             self._cookies = Cookies()
         return self._cookies
-    
+
     def __bytes__(self):
         response = b'HTTP/1.1 %a %b\r\n' % (
             self.status.value, self.status.phrase.encode())
@@ -117,7 +116,7 @@ class Response:
         # https://tools.ietf.org/html/rfc7230#section-3.3.2 :scream:
         for key, value in self.headers.items():
             response += b'%b: %b\r\n' % (key.encode(), str(value).encode())
-            
+
         if not self.bodyless:
             if not isinstance(self.body, bytes):
                 body = str(self.body).encode()
@@ -135,5 +134,3 @@ class Response:
         else:
             response += b'\r\n'
         return response
-
-    

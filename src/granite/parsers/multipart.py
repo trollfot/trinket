@@ -1,6 +1,4 @@
-import socket
 from io import BytesIO
-from urllib.parse import parse_qs, unquote
 from multifruits import Parser, extract_filename, parse_content_disposition
 from granite.http import Form, Files, HTTPError, HTTPStatus
 

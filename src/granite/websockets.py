@@ -37,7 +37,7 @@ class WebsocketPrototype(ABC):
         if not self.closed:
             async with TaskGroup(wait=any) as g:
                 receiver = await g.spawn(self.incoming.get)
-                closing = await g.spawn(self.closing.wait)
+                await g.spawn(self.closing.wait)
             if g.completed is receiver:
                 return receiver.result
 
@@ -94,7 +94,7 @@ class WebsocketPrototype(ABC):
                 if finished.exception:
                     await self.close(1011, 'Task died prematurely.')
                 else:
-                    await self.close()                    
+                    await self.close()
                 await outgoing.join()
 
 
@@ -122,6 +122,3 @@ class Websocket(WebsocketPrototype):
         self.protocol.accept(event)
         data = self.protocol.bytes_to_send()
         await self.socket.sendall(data)
-
-    async def handler(self, func, request, params):
-        await func(request, self, **params)

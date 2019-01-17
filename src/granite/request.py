@@ -29,12 +29,12 @@ class Channel:
     def data_received(self, data: bytes):
         try:
             self.parser.feed_data(data)
-        except HttpParserUpgrade as upgrade:
+        except HttpParserUpgrade:
             self.request.upgrade = True
-        except (HttpParserError, HttpParserInvalidMethodError) as exc:
+        except (HttpParserError, HttpParserInvalidMethodError):
             raise HTTPError(
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
-        
+
     async def read(self, parse: bool=True) -> bytes:
         data = await self.socket.recv(8096)
         if data:

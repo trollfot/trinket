@@ -1,7 +1,7 @@
 import socket
-from granite.request import Channel, Request
-from granite.response import Response, response_handler
-from granite.http import HTTPStatus, HTTPError
+from granite.request import Channel
+from granite.response import response_handler
+from granite.http import HTTPError
 
 
 async def request_handler(app, client, addr):
