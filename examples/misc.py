@@ -51,8 +51,7 @@ async def serve_websocket(request):
 
 @pebble.websocket('/chat')
 async def feed(request, websocket):
-    while True:
-        msg = await websocket.recv()
+    async for msg in websocket:
         for ws in pebble.websockets:
             if ws is not websocket:
                 await ws.send(msg)

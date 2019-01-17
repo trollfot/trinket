@@ -9,6 +9,8 @@ async def request_handler(app, client, addr):
         try:
             async for request in Channel(client):
                 response = await app(request)
+                if response is None:
+                    break
                 await response_handler(client, response)
         except HTTPError as exc:
             await client.sendall(bytes(exc))

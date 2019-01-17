@@ -36,10 +36,7 @@ class Channel:
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
         
     async def read(self, parse: bool=True) -> bytes:
-        socket_ttl = self.socket._socket.gettimeout()
-        self.socket._socket.settimeout(2)
         data = await self.socket.recv(8096)
-        self.socket._socket.settimeout(socket_ttl)
         if data:
             if parse:
                 self.data_received(data)

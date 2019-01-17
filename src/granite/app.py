@@ -4,7 +4,7 @@ from functools import wraps, partial
 from collections import defaultdict
 
 import curio
-from curio import TaskGroup, SignalEvent
+from curio import TaskGroup, TaskGroupError, SignalEvent
 from curio import run, spawn, socket, tcp_server
 from autoroutes import Routes
 
@@ -45,7 +45,7 @@ class Granite:
             raise HTTPError(
                 HTTPStatus.UPGRADE_REQUIRED,
                 'This is a websocket endpoint, please upgrade.')
-        
+
         return handler, params
 
     @lifecycle.handler_events
@@ -70,13 +70,11 @@ class Granite:
         def wrapper(func):
             @wraps(func)
             async def websocket_handler(request, **params):
-                websocket = Websocket(request)
-                await websocket.upgrade()                    
+                websocket = Websocket(request.socket)
+                await websocket.upgrade(request)
                 self.websockets.add(websocket)
-
-                async with TaskGroup(wait=any) as ws:
-                    await ws.spawn(func, request, websocket, **params)
-                    await ws.spawn(websocket.run)
+                task = await spawn(websocket.handler, func, request, params)
+                await websocket.flow(task)
                 self.websockets.discard(websocket)
 
             payload = {'GET': websocket_handler, 'websocket': True}

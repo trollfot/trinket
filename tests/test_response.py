@@ -17,7 +17,7 @@ async def test_GET_responses(app, client):
 
         async with client.query('GET', '/') as response:
             assert response.status == HTTPStatus.NOT_FOUND
-            assert response.read() == b''
+            assert response.read() == b'/'
 
         app.route('/bodyless')(bodyless)
         async with client.query('GET', '/bodyless') as response:

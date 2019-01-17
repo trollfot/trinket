@@ -6,13 +6,13 @@ try:
 except ImportError:
     import json as json
 
+import curio
 from collections.abc import AsyncGenerator
-from curio import aopen
 from granite.http import HTTPCode, HTTPStatus, Cookies
 
 
 async def file_iterator(path):
-    async with aopen(path, 'rb') as reader:
+    async with curio.aopen(path, 'rb') as reader:
         while True:
             data = await reader.read(4096)
             if not data:
