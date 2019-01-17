@@ -1,7 +1,8 @@
 Trinket
 =======
 
-Chiseled for duration
+A Curio HTTP server.
+
 
 Example
 -------
@@ -11,27 +12,27 @@ Example
     from trinket.response import file_iterator
     from trinket.extensions import logger
 
-    pebble = logger(Trinket())
+    bauble = logger(Trinket())
 
 
-    @pebble.route('/')
+    @bauble.route('/')
     async def hello(request):
         return Response.raw(b'Hello World !')
 
 
-    @pebble.route('/feed', methods=['POST'])
+    @bauble.route('/feed', methods=['POST'])
     async def feed(request):
         return Response.raw(b'You got here')
 
 
-    @pebble.route('/read', methods=['POST'])
+    @bauble.route('/read', methods=['POST'])
     async def feed(request):
         await request.parse_body()
         files = list(request.files.keys())
         return Response.raw("You got here and it's all read: {}".format(files))
 
 
-    @pebble.route('/hello/full/with/{one}/and/{two}')
+    @bauble.route('/hello/full/with/{one}/and/{two}')
     async def json(request, one, two):    
         response = Response.json({
             'parameters': f'{one} and {two}',
@@ -42,49 +43,26 @@ Example
         return response
 
 
-    @pebble.route('/websocket')
+    @bauble.route('/websocket')
     async def serve_websocket(request):
         response = Response.streamer(file_iterator('myfile.ext'))
         return response
 
 
-    @pebble.websocket('/chat')
+    @bauble.websocket('/chat')
     async def feed(request, websocket):
         while True:
             msg = await websocket.recv()
-            for ws in pebble.websockets:
+            for ws in bauble.websockets:
                 if ws is not websocket:
                     await ws.send(msg)
 
 
-    pebble.start()
+    bauble.start()
 
 
 Acknowledgments
 ---------------
 
-Trinket's Request, Response, Parsers and HTTP entities (Query,
-MultiPart...) are based on Roll's code.
-
-See : https://github.com/pyrates/roll
-
-It was tuned and modified very slightly to accomodate my ideas: a new
-workflow for the request/response and the streaming of the request's
-body at the handler's leisure.
-
-Compared to my Roll's fork, the whole upgrade and websockets parts
-were re-written with a new library, 'wsproto'.
-
-Why ?
------
-
-I like Curio's async concepts, syntax and philosophy.
-The performances were not a focus on this proof of concept, but they
-are 1/3 slower than Roll on asyncio.
-
-What now ?
-----------
-
-  - A lot of tests to write.
-  - Performances to enhance.
-  - Have a look at http2 using h2.
+Trinket relies heavily on packages from https://github.com/pyrates:
+very good re-useable components with Cython-improved performances.
