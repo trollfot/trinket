@@ -21,7 +21,7 @@ tests_require = [
     ]
 
 setup(name='trinket',
-      version='0.1.dev0',
+      version='0.1',
       description="Curio-based web framework",
       long_description="%s\n\n%s" % (
           read('README.md'), read(path.join('docs', 'HISTORY.txt'))),
