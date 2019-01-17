@@ -1,4 +1,4 @@
-from granite.http import Form, Files, HTTPError, HTTPStatus
+from trinket.http import Form, Files, HTTPError, HTTPStatus
 from urllib.parse import parse_qs
 
 

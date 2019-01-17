@@ -1,7 +1,7 @@
 import socket
-from granite.request import Channel
-from granite.response import response_handler
-from granite.http import HTTPError
+from trinket.request import Channel
+from trinket.response import response_handler
+from trinket.http import HTTPError
 
 
 async def request_handler(app, client, addr):

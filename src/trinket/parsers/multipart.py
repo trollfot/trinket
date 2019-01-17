@@ -1,6 +1,6 @@
 from io import BytesIO
 from multifruits import Parser, extract_filename, parse_content_disposition
-from granite.http import Form, Files, HTTPError, HTTPStatus
+from trinket.http import Form, Files, HTTPError, HTTPStatus
 
 
 class Multipart:

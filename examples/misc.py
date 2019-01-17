@@ -1,11 +1,11 @@
 """
 Examples of usages.
 """
-from granite import Granite, Response
-from granite.response import file_iterator
-from granite.extensions import logger
+from trinket import Trinket, Response
+from trinket.response import file_iterator
+from trinket.extensions import logger
 
-pebble = Granite()
+pebble = Trinket()
 
 
 @pebble.route('/')

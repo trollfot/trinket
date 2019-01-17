@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from os import path
 from setuptools import setup, find_packages
 
@@ -22,7 +20,7 @@ tests_require = [
     "pytest",
     ]
 
-setup(name='granite',
+setup(name='trinket',
       version='0.1.dev0',
       description="Curio-based web framework",
       long_description="%s\n\n%s" % (
@@ -38,6 +36,6 @@ setup(name='granite',
       install_requires=install_requires,
       extras_require={'test': tests_require},
       entry_points={
-          'pytest11': ['granite=granite.testing'],
+          'pytest11': ['trinket=trinket.testing'],
       }
       )

@@ -3,7 +3,7 @@ import logging
 
 def logger(app, level=logging.DEBUG):
 
-    logger = logging.getLogger('granite')
+    logger = logging.getLogger('trinket')
     logger.setLevel(level)
     handler = logging.StreamHandler()
 

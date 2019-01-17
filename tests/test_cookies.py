@@ -1,6 +1,6 @@
 from datetime import datetime
 from http import HTTPStatus
-from granite import Response
+from trinket import Response
 
 
 def test_cookies():

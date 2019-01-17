@@ -6,17 +6,17 @@ from curio import SignalEvent
 from curio import run, spawn, tcp_server
 from autoroutes import Routes
 
-from granite import lifecycle
-from granite.handler import request_handler
-from granite.request import Request
-from granite.http import HTTPStatus, HTTPError
-from granite.websockets import Websocket
+from trinket import lifecycle
+from trinket.handler import request_handler
+from trinket.request import Request
+from trinket.http import HTTPStatus, HTTPError
+from trinket.websockets import Websocket
 
 
 Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
 
 
-class Granite:
+class Trinket:
 
     __slots__ = ('hooks', 'routes', 'websockets')
 
@@ -99,7 +99,7 @@ class Granite:
 
     @lifecycle.server_events
     async def serve(self, host, port):
-        print('Granite serving on {}:{}'.format(host, port))
+        print('Trinket serving on {}:{}'.format(host, port))
         handler = partial(request_handler, self)
         server = await spawn(tcp_server(host, port, handler))
         await Goodbye.wait()
@@ -109,4 +109,4 @@ class Granite:
 
     def start(self, host='127.0.0.1', port=5000, debug=True):
         run(self.serve, host, port, with_monitor=debug)
-        print('Granite is crumbling away...')
+        print('Trinket is crumbling away...')

@@ -1,6 +1,6 @@
 import pytest
 from http import HTTPStatus
-from granite import HTTPError
+from trinket import HTTPError
 
 
 pytestmark = pytest.mark.curio

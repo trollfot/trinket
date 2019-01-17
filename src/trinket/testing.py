@@ -9,8 +9,8 @@ from io import BytesIO
 from uuid import uuid4
 from urllib.parse import urlencode
 
-from granite.app import Granite
-from granite.websockets import WebsocketPrototype
+from trinket.app import Trinket
+from trinket.websockets import WebsocketPrototype
 from wsproto.connection import WSConnection, CLIENT
 from wsproto.events import ConnectionEstablished
 
@@ -160,7 +160,7 @@ class Websocket(WebsocketPrototype):
 
 class LiveClient:
 
-    def __init__(self, app: Granite, port: int=42000):
+    def __init__(self, app: Trinket, port: int=42000):
         self.app = app
         self.port = port
         self.task = None
@@ -203,7 +203,7 @@ class LiveClient:
 
 @pytest.fixture
 def app():
-    return Granite()
+    return Trinket()
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 from abc import ABC
 from curio import socket, Queue, Event, TaskGroup
-from granite.http import HTTPStatus, HTTPError
+from trinket.http import HTTPStatus, HTTPError
 from wsproto.connection import WSConnection, SERVER
 from wsproto import events
 from wsproto.extensions import PerMessageDeflate

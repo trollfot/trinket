@@ -1,4 +1,4 @@
-from granite.request import Request
+from trinket.request import Request
 
 
 def test_can_store_arbitrary_keys_on_request():

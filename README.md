@@ -1,4 +1,4 @@
-Granite
+Trinket
 =======
 
 Chiseled for duration
@@ -7,11 +7,11 @@ Example
 -------
 
 
-    from granite import Granite, Response
-    from granite.response import file_iterator
-    from granite.extensions import logger
+    from trinket import Trinket, Response
+    from trinket.response import file_iterator
+    from trinket.extensions import logger
 
-    pebble = logger(Granite())
+    pebble = logger(Trinket())
 
 
     @pebble.route('/')
@@ -63,7 +63,7 @@ Example
 Acknowledgments
 ---------------
 
-Granite's Request, Response, Parsers and HTTP entities (Query,
+Trinket's Request, Response, Parsers and HTTP entities (Query,
 MultiPart...) are based on Roll's code.
 
 See : https://github.com/pyrates/roll

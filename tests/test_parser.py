@@ -1,6 +1,6 @@
 import pytest
-from granite.request import Channel
-from granite.http import HTTPError
+from trinket.request import Channel
+from trinket.http import HTTPError
 
 
 @pytest.fixture

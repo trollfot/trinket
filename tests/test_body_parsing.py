@@ -1,7 +1,7 @@
 import pytest
-from granite.request import Channel
-from granite.http import HTTPError
-from granite.testing import RequestForger
+from trinket.request import Channel
+from trinket.http import HTTPError
+from trinket.testing import RequestForger
 from io import BytesIO
 
 

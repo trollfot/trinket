@@ -1,6 +1,6 @@
 from biscuits import parse
-from granite.http import HTTPStatus, HTTPError, Query
-from granite.parsers import CONTENT_TYPES_PARSERS
+from trinket.http import HTTPStatus, HTTPError, Query
+from trinket.parsers import CONTENT_TYPES_PARSERS
 from httptools import HttpParserUpgrade, HttpParserError, HttpRequestParser
 from httptools.parser.errors import HttpParserInvalidMethodError
 from httptools import parse_url

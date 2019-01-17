@@ -7,7 +7,7 @@ except ImportError:
 
 import curio
 from collections.abc import AsyncGenerator
-from granite.http import HTTPCode, HTTPStatus, Cookies
+from trinket.http import HTTPCode, HTTPStatus, Cookies
 
 
 async def file_iterator(path):
