@@ -31,7 +31,7 @@ class Channel:
             self.parser.feed_data(data)
         except HttpParserUpgrade:
             self.request.upgrade = True
-        except (HttpParserError, HttpParserInvalidMethodError):
+        except (HttpParserError, HttpParserInvalidMethodError) as exc:
             raise HTTPError(
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
 
@@ -135,13 +135,14 @@ class Request(dict):
         self.form = None
         self.headers = headers
         self.keep_alive = False
-        self.method = b'GET'
+        self.method = None
         self.path = None
         self.query_string = None
         self.socket = socket
         self.upgrade = False
         self.url = None
 
+    @property
     async def raw_body(self):
         async for data in self._reader:
             self.body += data

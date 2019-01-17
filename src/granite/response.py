@@ -67,7 +67,6 @@ class Response:
 
     @status.setter
     def status(self, http_code: HTTPCode):
-        # Idempotent if `http_code` is already an `HTTPStatus` instance.
         self._status = HTTPStatus(http_code)
         self.bodyless = self._status in self.BODYLESS_STATUSES
 

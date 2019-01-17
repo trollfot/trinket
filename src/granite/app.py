@@ -68,11 +68,13 @@ class Granite:
             @wraps(func)
             async def websocket_handler(request, **params):
                 websocket = Websocket(request.socket)
-                await websocket.upgrade(request)
-                self.websockets.add(websocket)
-                task = await spawn(func, request, websocket, **params)
-                await websocket.flow(task)
-                self.websockets.discard(websocket)
+                try:
+                    await websocket.upgrade(request)
+                    self.websockets.add(websocket)
+                    task = await spawn(func, request, websocket, **params)
+                    await websocket.flow(task)
+                finally:
+                    self.websockets.discard(websocket)
 
             payload = {'GET': websocket_handler, 'websocket': True}
             payload.update(extras)

@@ -1,5 +1,4 @@
 import pytest
-import curio
 from http import HTTPStatus
 from wsproto.frame_protocol import CloseReason
 
@@ -30,12 +29,12 @@ async def test_websockets_store(app, client):
     @app.websocket('/null')
     async def blackhole(request, ws, **params):
         async for data in ws:
-            pass
+            del data
 
     async with client:
-        async with client.websocket('/null') as ws1:
+        async with client.websocket('/null'):
             assert len(app.websockets) == 1
-            async with client.websocket('/null') as ws2:
+            async with client.websocket('/null'):
                 assert len(app.websockets) == 2
 
 
