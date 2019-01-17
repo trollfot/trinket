@@ -101,5 +101,5 @@ async def test_websocket_failure(app, client):
         async with client.websocket('/failure') as ws:
             await ws.recv()
 
-    assert ws.closed.code == CloseReason(1011)
-    assert ws.closed.reason == 'Handler died prematurely.'
+    assert ws.closure.code == CloseReason(1011)
+    assert ws.closure.reason == 'Task died prematurely.'

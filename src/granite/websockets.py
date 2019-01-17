@@ -1,11 +1,16 @@
 from abc import ABC
-from curio import Queue, Event, TaskGroupError, TaskGroup, TaskCancelled
+from curio import socket, Queue, Event, TaskGroupError, TaskGroup, TaskCancelled
 from granite.http import HTTPStatus, HTTPError
 from wsproto.connection import WSConnection, SERVER
 from wsproto import events
+from wsproto.extensions import PerMessageDeflate
 
 
 DATA_TYPES = (events.TextReceived, events.BytesReceived)
+
+
+class WebsocketClosedError(Exception):
+    pass
 
 
 class WebsocketPrototype(ABC):
@@ -16,73 +21,86 @@ class WebsocketPrototype(ABC):
     def __init__(self):
         self.outgoing = Queue()
         self.incoming = Queue()
-        self.closed = None
-        self.muted = False
+        self.closure = None
+        self.closing = Event()
+
+    @property
+    def closed(self):
+        return self.closing.is_set()
 
     async def send(self, data):
+        if self.closed:
+            raise WebsocketClosedError()
         await self.outgoing.put(data)
 
     async def recv(self):
-        return await self.incoming.get()
+        if not self.closed:
+            async with TaskGroup(wait=any) as g:
+                receiver = await g.spawn(self.incoming.get)
+                closing = await g.spawn(self.closing.wait)
+            if g.completed is receiver:
+                return receiver.result
 
     async def __aiter__(self):
         async for msg in self.incoming:
             yield msg
 
     async def close(self, code=1000, reason='Closed.'):
-        await self.incoming.put(None)  # EOF
-        if not self.protocol.closed:
-            closure = events.ConnectionClosed(code, reason)
-            await self.outgoing.put(closure)
+        await self.outgoing.put(events.ConnectionClosed(code, reason))
 
     async def _handle_incoming(self):
-        while not self.muted:
-            data = await self.socket.recv(8096)            
-            if not data:
-                # Socket was closed.
-                self.muted = True
-                await self.outgoing.put(None)
-                return
+        while not self.closed:
+            data = await self.socket.recv(4096)
             self.protocol.receive_bytes(data)
+            if not data:
+                await self.closing.set()
             for event in self.protocol.events():
                 cl = event.__class__
                 if cl in DATA_TYPES:
                     await self.incoming.put(event.data)
                 elif cl is events.ConnectionClosed:
                     # The client has closed the connection gracefully.
-                    await self.outgoing.put(None)
-                    self.closed = event
-                    return
-            msg = self.protocol.bytes_to_send()
-            await self.socket.sendall(msg)
+                    self.closure = event
+                    await self.closing.set()
 
     async def _handle_outgoing(self):
         async for data in self.outgoing:
-            if isinstance(data, events.ConnectionClosed):
+            if data is None:
+                await self.closing.set()
+            elif isinstance(data, events.ConnectionClosed):
                 self.protocol.close(code=data.code, reason=data.reason)
-                if not self.muted:
-                    payload = self.protocol.bytes_to_send()
-                    await self.socket.sendall(payload)
-                    self.closed = data
-                return
-            elif data is None or self.muted is True:
-                # Socket is closed, we can't send.
-                return
+                self.closure = data
+                await self.closing.set()
             else:
                 self.protocol.send_data(data)
+            try:
                 await self.socket.sendall(self.protocol.bytes_to_send())
+            except socket.error:
+                await self.closing.set()
+            if self.closed:
+                return
 
     async def flow(self, *tasks):
         async with TaskGroup(tasks=tasks) as ws:
             incoming = await ws.spawn(self._handle_incoming)
             outgoing = await ws.spawn(self._handle_outgoing)
-            async for t in ws:
-                if t in tasks:
-                    # Task is finished. We close the incoming.
-                    # We ask for the outgoing to finish.
-                    await incoming.cancel()
-                    await self.close()
-            
+            finished = await ws.next_done()
+            if finished is incoming:
+                await self.outgoing.put(None)
+                await outgoing.join()
+            elif finished in tasks:
+                # Task is finished.
+                # We ask for the outgoing to finish
+                if finished.exception:
+                    await self.close(1011, 'Task died prematurely.')
+                else:
+                    await self.close()                    
+                await outgoing.join()
+            try:
+                await self.socket.shutdown(socket.SHUT_RDWR)
+            except socket.error:
+                pass
+
 
 class Websocket(WebsocketPrototype):
     """Server-side websocket running a handler parallel to the I/O.
@@ -90,7 +108,7 @@ class Websocket(WebsocketPrototype):
     def __init__(self, socket):
         super().__init__()
         self.socket = socket
-        self.protocol = WSConnection(SERVER)
+        self.protocol = WSConnection(SERVER, extensions=[PerMessageDeflate()])
 
     async def upgrade(self, request):
         data = '{} {} HTTP/1.1\r\n'.format(
@@ -110,15 +128,4 @@ class Websocket(WebsocketPrototype):
         await self.socket.sendall(data)
 
     async def handler(self, func, request, params):
-        try:
-            await func(request, self, **params)
-        except TaskCancelled:
-            # Handler was cancelled, most likely by the taskgroup.
-            # This could be due to a client socket closure or an
-            # error in the websocket low levels.
-            pass
-        except Exception as error:
-            # A more serious error happened.
-            # The websocket handler was untimely terminated
-            # by an unwarranted exception. Warn the client.
-            await self.close(1011, 'Handler died prematurely.')
+        await func(request, self, **params)
