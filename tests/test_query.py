@@ -25,7 +25,7 @@ async def test_simple_GET(app, client):
             assert response.status == HTTPStatus.OK
             assert response.read() == b'Hello World !'
 
-            
+
 async def test_bodyless_response(app, client):
 
     @app.route('/bodyless')
@@ -53,7 +53,7 @@ async def test_simple_POST(client, app):
 
     @app.route('/test', methods=['POST'])
     async def post(request):
-        body = await request.raw_body        
+        body = await request.raw_body
         return Response.raw(body)
 
     async with client:

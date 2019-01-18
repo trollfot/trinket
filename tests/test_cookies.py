@@ -5,7 +5,7 @@ from trinket import Response
 
 def test_cookies():
     response = Response(HTTPStatus.OK, body="body")
-    response.cookies.set(name='name', value='value') 
+    response.cookies.set(name='name', value='value')
     assert b'\r\nSet-Cookie: name=value; Path=/\r\n' in bytes(response)
 
 
@@ -29,7 +29,7 @@ def test_cookies_with_expires():
         'name', 'value',
         expires=datetime(2027, 9, 21, 11, 22)
     )
-    
+
     assert (
         b'\r\nSet-Cookie: name=value; '
         b'Expires=Tue, 21 Sep 2027 11:22:00 GMT; Path=/\r\n'

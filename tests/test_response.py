@@ -144,7 +144,7 @@ def test_raw_response():
         b'Content-Length: 24\r\n\r\n' + CONTENT)
 
     response = Response.raw(CONTENT, status=HTTPStatus.ACCEPTED,
-                             headers={'Custom-Header': 'Test'})
+                            headers={'Custom-Header': 'Test'})
     assert bytes(response) == (
         b'HTTP/1.1 202 Accepted\r\n'
         b'Custom-Header: Test\r\n'
@@ -152,7 +152,7 @@ def test_raw_response():
         b'Content-Length: 24\r\n\r\n' + CONTENT)
 
     response = Response.raw(CONTENT, status=HTTPStatus.ACCEPTED,
-                             headers={'Content-Type': 'wrong/content'})
+                            headers={'Content-Type': 'wrong/content'})
     assert bytes(response) == (
         b'HTTP/1.1 202 Accepted\r\n'
         b'Content-Type: text/plain; charset=utf-8\r\n'

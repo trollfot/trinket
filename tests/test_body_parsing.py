@@ -109,14 +109,14 @@ async def test_post_multipart(parser, params):
     parser.data_received(request)
     await parser.request.parse_body()
     assert parser.request.files.get('afile').filename == 'afile.txt'
-    
+
 
 async def test_post_urlencoded(parser):
     request = RequestForger.post(
         '/test', body={'foo': 'bar'},
         content_type='application/x-www-form-urlencoded')
     parser.data_received(request)
-    await parser.request.parse_body()   
+    await parser.request.parse_body()
     assert parser.request.form.get(b'foo') == b'bar'
 
 
@@ -125,5 +125,5 @@ async def test_post_urlencoded_list(parser):
         '/test', body=[('foo', 'bar'), ('foo', 'baz')],
         content_type='application/x-www-form-urlencoded')
     parser.data_received(request)
-    await parser.request.parse_body()   
+    await parser.request.parse_body()
     assert parser.request.form.list(b'foo') == [b'bar', b'baz']

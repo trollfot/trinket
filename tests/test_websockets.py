@@ -48,7 +48,7 @@ async def test_websocket_binary(app, client):
     async with client:
         async with client.websocket('/bin') as ws:
             bdata = await ws.recv()
-        assert bdata == b'test'           
+        assert bdata == b'test'
 
 
 @pytest.mark.curio
@@ -67,7 +67,7 @@ async def test_websocket_upgrade(app, client):
                 'Sec-WebSocket-Key': 'hojIvDoHedBucveephosh8==',
                 'Sec-WebSocket-Version': '13'}) as response:
             assert response.status == HTTPStatus.SWITCHING_PROTOCOLS
-        
+
         # Unknown upgrade
         async with client.query('GET', '/ws', headers={
                 'Upgrade': 'h2c',
