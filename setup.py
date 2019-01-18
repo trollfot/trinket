@@ -21,10 +21,10 @@ tests_require = [
     ]
 
 setup(name='trinket',
-      version='0.1',
+      version='0.1.1',
       description="Curio-based web framework",
       long_description="%s\n\n%s" % (
-          read('README.md'), read(path.join('docs', 'HISTORY.txt'))),
+          read('README.rst'), read(path.join('docs', 'HISTORY.txt'))),
       keywords="Curio HTTP",
       author="",
       author_email="",
