@@ -3,9 +3,6 @@ from http import HTTPStatus
 from trinket import Response
 
 
-pytestmark = pytest.mark.curio
-
-
 def test_can_set_status_from_numeric_value():
     response = Response(202)
     assert response.status == HTTPStatus.ACCEPTED
@@ -46,78 +43,128 @@ def test_1XX_no_content_type():
         b'HTTP/1.1 100 Continue\r\n\r\n'
 
 
-async def test_not_found(client):
+def test_json_response():
+    structure = {
+        'Trinket': 'bauble',
+        'python3.7': True,
+        'version': 0.1
+    }
+    response = Response.json(structure)
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: application/json; charset=utf-8\r\n'
+        b'Content-Length: 56\r\n\r\n'
+        b'{"Trinket": "bauble", "python3.7": true, "version": 0.1}')
 
-    async with client:
-        async with client.query('GET', '/') as response:
-            assert response.status == HTTPStatus.NOT_FOUND
-            assert response.read() == b'/'
+    response = Response.json(structure, headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: application/json; charset=utf-8\r\n'
+        b'Content-Length: 56\r\n\r\n'
+        b'{"Trinket": "bauble", "python3.7": true, "version": 0.1}')
 
+    response = Response.json(structure, status=HTTPStatus.ACCEPTED,
+                             headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: application/json; charset=utf-8\r\n'
+        b'Content-Length: 56\r\n\r\n'
+        b'{"Trinket": "bauble", "python3.7": true, "version": 0.1}')
 
-async def test_simple_GET(app, client):
-
-    @app.route('/hello')
-    async def hello(request):
-        return Response.raw(b'Hello World !')
-
-    async with client:
-        async with client.query('GET', '/hello') as response:
-            assert response.status == HTTPStatus.OK
-            assert response.read() == b'Hello World !'
-
-            
-async def test_bodyless_response(app, client):
-
-    @app.route('/bodyless')
-    async def bodyless(request):
-        return Response(status=HTTPStatus.ACCEPTED)
-
-    async with client:
-        async with client.query('GET', '/bodyless') as response:
-            assert response.status == HTTPStatus.ACCEPTED
-            assert response.read() == b''
-
-
-async def test_unallowed_method(app, client):
-
-    @app.route('/hello')
-    async def hello(request):
-        return Response.raw(b'Hello World !')
-
-    async with client:
-        async with client.query('POST', '/hello') as response:
-            assert response.status == HTTPStatus.METHOD_NOT_ALLOWED
+    response = Response.json(structure, status=HTTPStatus.ACCEPTED,
+                             headers={'Content-Type': 'wrong/content'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Content-Type: application/json; charset=utf-8\r\n'
+        b'Content-Length: 56\r\n\r\n'
+        b'{"Trinket": "bauble", "python3.7": true, "version": 0.1}')
 
 
-async def test_simple_POST(client, app):
-
-    @app.route('/test', methods=['POST'])
-    async def post(request):
-        body = await request.raw_body        
-        return Response.raw(body)
-
-    async with client:
-        content = b'{"key": "value"}'
-        async with client.query('POST', '/test', body=content) as response:
-            assert response.status == HTTPStatus.OK
-            assert response.read() == content
+def test_json_errors():
+    with pytest.raises(TypeError):
+        response = Response.json(object())
 
 
-async def test_can_define_twice_a_route_with_different_payloads(client, app):
+def test_html_response():
+    HTML = b"""<!DOCTYPE html>
+<html>
+  <body>
+    <h1>Sample HTML</h1>
+    <p>This is a sample.</p>
+  </body>
+</html>"""
 
-    @app.route('/test', methods=['GET'])
-    async def get(request):
-        return Response.raw(b'GET')
+    response = Response.html(HTML)
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Content-Length: 103\r\n\r\n' + HTML)
 
-    @app.route('/test', methods=['POST'])
-    async def post(request):
-        return Response.raw(b'POST')
+    response = Response.html(HTML, headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Content-Length: 103\r\n\r\n' + HTML)
 
-    async with client:
-        async with client.query('GET', '/test') as response:
-            assert response.status == HTTPStatus.OK
-            assert response.read() == b'GET'
+    response = Response.html(HTML, status=HTTPStatus.ACCEPTED,
+                             headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Content-Length: 103\r\n\r\n' + HTML)
 
-        async with client.query('POST', '/test') as response:
-            assert response.status == HTTPStatus.OK
-            assert response.read() == b'POST'
+    response = Response.html(HTML, status=HTTPStatus.ACCEPTED,
+                             headers={'Content-Type': 'wrong/content'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Content-Length: 103\r\n\r\n' + HTML)
+
+
+def test_raw_response():
+    CONTENT = b"Some meaningful content."
+
+    response = Response.raw(CONTENT)
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: text/plain; charset=utf-8\r\n'
+        b'Content-Length: 24\r\n\r\n' + CONTENT)
+
+    response = Response.raw(CONTENT, headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: text/plain; charset=utf-8\r\n'
+        b'Content-Length: 24\r\n\r\n' + CONTENT)
+
+    response = Response.raw(CONTENT, status=HTTPStatus.ACCEPTED,
+                             headers={'Custom-Header': 'Test'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Custom-Header: Test\r\n'
+        b'Content-Type: text/plain; charset=utf-8\r\n'
+        b'Content-Length: 24\r\n\r\n' + CONTENT)
+
+    response = Response.raw(CONTENT, status=HTTPStatus.ACCEPTED,
+                             headers={'Content-Type': 'wrong/content'})
+    assert bytes(response) == (
+        b'HTTP/1.1 202 Accepted\r\n'
+        b'Content-Type: text/plain; charset=utf-8\r\n'
+        b'Content-Length: 24\r\n\r\n' + CONTENT)
+
+
+def test_stream_response():
+    STREAM = (chunk for chunk in ['This', 'is', 'a', 'chunked', 'content'])
+
+    response = Response.streamer(STREAM)
+    assert bytes(response) == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: application/octet-stream\r\n'
+        b'Transfer-Encoding: chunked\r\n'
+        b'Keep-Alive: 10\r\n\r\n')
+
+    assert response.stream is STREAM

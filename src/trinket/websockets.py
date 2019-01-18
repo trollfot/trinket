@@ -15,8 +15,14 @@ class WebsocketClosedError(Exception):
 
 class WebsocketPrototype(ABC):
 
-    socket = None
-    protocol = None
+    __slots__ = (
+        'socket',
+        'protocol',
+        'outgoing',
+        'incoming',
+        'closure',
+        'closing'
+    )
 
     def __init__(self):
         self.outgoing = Queue()

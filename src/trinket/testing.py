@@ -1,3 +1,4 @@
+import json
 import http.client
 import mimetypes
 from contextlib import asynccontextmanager
@@ -132,7 +133,7 @@ class RequestForger:
         if files is not None:
             content_type, contents = cls.prepare_files(files)
             body.update(contents)
-    
+
         return cls.forge('POST', path, body, headers, content_type)
 
 

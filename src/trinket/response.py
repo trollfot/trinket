@@ -71,20 +71,23 @@ class Response:
         self.bodyless = self._status in self.BODYLESS_STATUSES
 
     @classmethod
-    def json(cls, value):
+    def json(cls, value: str, status=HTTPStatus.OK, headers=None):
+        headers = headers is not None and headers or {}
+        headers['Content-Type'] = 'application/json; charset=utf-8'
         body = json.dumps(value)
-        headers = {'Content-Type': 'application/json; charset=utf-8'}
-        return cls(body=body, headers=headers)
+        return cls(status=status, body=body, headers=headers)
 
     @classmethod
-    def raw(cls, value: bytes):
-        headers = {'Content-Type': 'text/plain; charset=utf-8'}
-        return cls(body=value, headers=headers)
+    def raw(cls, body: bytes, status=HTTPStatus.OK, headers=None):
+        headers = headers is not None and headers or {}
+        headers['Content-Type'] = 'text/plain; charset=utf-8'
+        return cls(status=status, body=body, headers=headers)
 
     @classmethod
-    def html(cls, value: bytes):
-        headers = {'Content-Type': 'text/html; charset=utf-8'}
-        return cls(body=value, headers=headers)
+    def html(cls, body: bytes, status=HTTPStatus.OK, headers=None):
+        headers = headers is not None and headers or {}
+        headers['Content-Type'] = 'text/html; charset=utf-8'
+        return cls(status=status, body=body, headers=headers)
 
     @classmethod
     def streamer(self, gen, content_type="application/octet-stream"):
