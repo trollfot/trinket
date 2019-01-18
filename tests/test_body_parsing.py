@@ -20,14 +20,14 @@ async def test_parse_multipart(parser):
         b'User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:54.0) '
         b'Gecko/20100101 Firefox/54.0\r\n'
         b'Origin: http://localhost:7777\r\n'
-        b'Content-Length: 186\r\n'
+        b'Content-Length: 180\r\n'
         b'Content-Type: multipart/form-data; boundary=foofoo\r\n'
         b'\r\n'
         b'--foofoo\r\n'
         b'Content-Disposition: form-data; name=baz; filename="baz.png"\r\n'
         b'Content-Type: image/png\r\n'
         b'\r\n'
-        b'abcasync def\r\n'
+        b'abcdef\r\n'
         b'--foofoo\r\n'
         b'Content-Disposition: form-data; name="text1"\r\n'
         b'\r\n'
@@ -36,7 +36,7 @@ async def test_parse_multipart(parser):
     assert parser.request.form.get('text1') == 'abc'
     assert parser.request.files.get('baz').filename == 'baz.png'
     assert parser.request.files.get('baz').content_type == b'image/png'
-    assert parser.request.files.get('baz').read() == b'abcasync def'
+    assert parser.request.files.get('baz').read() == b'abcdef'
 
 
 async def test_parse_multipart_filename_star(parser):
@@ -46,7 +46,7 @@ async def test_parse_multipart_filename_star(parser):
         b'User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:54.0) '
         b'Gecko/20100101 Firefox/54.0\r\n'
         b'Origin: http://localhost:7777\r\n'
-        b'Content-Length: 201\r\n'
+        b'Content-Length: 195\r\n'
         b'Content-Type: multipart/form-data; boundary=foofoo\r\n'
         b'\r\n'
         b'--foofoo\r\n'
@@ -54,7 +54,7 @@ async def test_parse_multipart_filename_star(parser):
         b'filename*="iso-8859-1\'\'baz-\xe9.png"\r\n'
         b'Content-Type: image/png\r\n'
         b'\r\n'
-        b'abcasync def\r\n'
+        b'abcdef\r\n'
         b'--foofoo\r\n'
         b'Content-Disposition: form-data; name="text1"\r\n'
         b'\r\n'
@@ -63,7 +63,7 @@ async def test_parse_multipart_filename_star(parser):
     assert parser.request.form.get('text1') == 'abc'
     assert parser.request.files.get('baz').filename == 'baz-é.png'
     assert parser.request.files.get('baz').content_type == b'image/png'
-    assert parser.request.files.get('baz').read() == b'abcasync def'
+    assert parser.request.files.get('baz').read() == b'abcdef'
 
 
 async def test_parse_unparsable_multipart(parser):

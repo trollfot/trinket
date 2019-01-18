@@ -36,7 +36,7 @@ class Channel:
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
 
     async def read(self, parse: bool=True) -> bytes:
-        data = await self.socket.recv(8096)
+        data = await self.socket.recv(1024)
         if data:
             if parse:
                 self.data_received(data)
