@@ -16,6 +16,15 @@ from wsproto.connection import WSConnection, CLIENT
 from wsproto.events import ConnectionEstablished
 
 
+class MockWriteSocket:
+    """Mock socket that can only write.
+    """
+    sent = b''
+
+    async def sendall(self, data: bytes):
+        self.sent += data
+
+
 def encode_multipart(data, charset='utf-8'):
     # Ported from Werkzeug testing.
     boundary = '---------------Boundary%s' % uuid4().hex

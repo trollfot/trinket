@@ -1,6 +1,8 @@
 import pytest
+import curio
 from http import HTTPStatus
-from trinket import Response
+from trinket.response import Response, response_handler
+from trinket.testing import MockWriteSocket
 
 
 def test_can_set_status_from_numeric_value():
@@ -157,8 +159,9 @@ def test_raw_response():
         b'Content-Length: 24\r\n\r\n' + CONTENT)
 
 
-def test_stream_response():
-    STREAM = (chunk for chunk in ['This', 'is', 'a', 'chunked', 'content'])
+@pytest.mark.curio
+async def test_stream_response():
+    STREAM = (chunk for chunk in [b'This', b'is', b'a', b'chunked', b'body'])
 
     response = Response.streamer(STREAM)
     assert bytes(response) == (
@@ -168,3 +171,43 @@ def test_stream_response():
         b'Keep-Alive: 10\r\n\r\n')
 
     assert response.stream is STREAM
+
+    socket = MockWriteSocket()
+    await response_handler(socket, response)
+    assert socket.sent == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: application/octet-stream\r\n'
+        b'Transfer-Encoding: chunked\r\n'
+        b'Keep-Alive: 10\r\n\r\n'
+        b'4\r\nThis\r\n'
+        b'2\r\nis\r\n'
+        b'1\r\na\r\n'
+        b'7\r\nchunked\r\n'
+        b'4\r\nbody\r\n'
+        b'0\r\n\r\n'
+    )
+
+
+@pytest.mark.curio
+async def test_async_stream_response():
+
+    async def astream():
+        for chunk in [b'This', b'is', b'a', b'chunked', b'body']:
+            yield chunk
+            await curio.sleep(0)
+
+    response = Response.streamer(astream())
+    socket = MockWriteSocket()
+    await response_handler(socket, response)
+    assert socket.sent == (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: application/octet-stream\r\n'
+        b'Transfer-Encoding: chunked\r\n'
+        b'Keep-Alive: 10\r\n\r\n'
+        b'4\r\nThis\r\n'
+        b'2\r\nis\r\n'
+        b'1\r\na\r\n'
+        b'7\r\nchunked\r\n'
+        b'4\r\nbody\r\n'
+        b'0\r\n\r\n'
+    )
