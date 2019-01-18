@@ -3,6 +3,8 @@ Trinket
 
 A Curio HTTP server.
 
+![State of master branch in Travis](https://travis-ci.com/trollfot/trinket.svg?branch=master)
+
 
 Installation
 ------------
