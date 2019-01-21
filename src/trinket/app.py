@@ -1,25 +1,23 @@
-import signal
-from functools import wraps, partial
+from functools import wraps
 from collections import defaultdict
 
-from curio import SignalEvent
-from curio import run, spawn, tcp_server
+from curio import spawn
 from autoroutes import Routes
 
-from trinket import lifecycle
 from trinket.handler import request_handler
-from trinket.request import Request
 from trinket.http import HTTPStatus, HTTPError
+from trinket.lifecycle import handler_events
+from trinket.proto import Application
+from trinket.request import Request
+from trinket.server import Server
 from trinket.websockets import Websocket
 
 
-Goodbye = SignalEvent(signal.SIGINT, signal.SIGTERM)
+class Trinket(Application):
 
-
-class Trinket:
-
-    __slots__ = ('hooks', 'routes', 'websockets')
-
+    __slots__ = ('hooks', 'routes', 'websockets', 'server')
+    handle_request = request_handler
+    
     def __init__(self):
         self.routes = Routes()
         self.websockets = set()
@@ -45,7 +43,7 @@ class Trinket:
 
         return handler, params
 
-    @lifecycle.handler_events
+    @handler_events
     async def __call__(self, request: Request):
         handler, params = await self.lookup(request)
         return await handler(request, **params)
@@ -97,16 +95,5 @@ class Trinket:
                     return result
         return None
 
-    @lifecycle.server_events
-    async def serve(self, host, port):
-        print('Trinket serving on {}:{}'.format(host, port))
-        handler = partial(request_handler, self)
-        server = await spawn(tcp_server(host, port, handler))
-        await Goodbye.wait()
-        print('Server is shutting down.')
-        print('Please wait. The remaining tasks are being terminated.')
-        await server.cancel()
-
     def start(self, host='127.0.0.1', port=5000, debug=True):
-        run(self.serve, host, port, with_monitor=debug)
-        print('Trinket is crumbling away...')
+        Server.start(self, host, port, debug)
