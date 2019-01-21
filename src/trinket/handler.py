@@ -6,7 +6,7 @@ from trinket.http import HTTPError
 from typing import Tuple, Callable
 
 
-async def request_handler(app:Callable, client:Socket, addr:Tuple[str, int]):
+async def request_handler(app: Callable, client: Socket, *args):
     async with client:
         try:
             async for request in Channel(client):

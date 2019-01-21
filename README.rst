@@ -40,13 +40,13 @@ Example
         return Response.raw(b'Hello World !')
     
     
-    @bauble.route('/feed', methods=['POST'])
-    async def feed(request):
+    @bauble.route('/raw', methods=['POST'])
+    async def raw(request):
         return Response.raw(b'You got here')
     
     
     @bauble.route('/read', methods=['POST'])
-    async def feed(request):
+    async def reader(request):
         await request.parse_body()
         files = list(request.files.keys())
         return Response.raw("You got here and it's all read: {}".format(files))
@@ -70,7 +70,7 @@ Example
     
     
     @bauble.websocket('/chat')
-    async def feed(request, websocket):
+    async def chat(request, websocket):
         while True:
             msg = await websocket.recv()
             for ws in bauble.websockets:

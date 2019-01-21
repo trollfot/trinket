@@ -15,9 +15,11 @@ from trinket.websockets import Websocket
 
 class Trinket(Application):
 
-    __slots__ = ('hooks', 'routes', 'websockets', 'server')
+    __slots__ = (
+        'hooks', 'routes', 'websockets', 'server')
+
     handle_request = request_handler
-    
+
     def __init__(self):
         self.routes = Routes()
         self.websockets = set()

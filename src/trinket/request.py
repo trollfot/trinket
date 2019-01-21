@@ -32,6 +32,7 @@ class Channel:
         except HttpParserUpgrade:
             self.request.upgrade = True
         except (HttpParserError, HttpParserInvalidMethodError) as exc:
+            # We should log the exc.
             raise HTTPError(
                 HTTPStatus.BAD_REQUEST, 'Unparsable request.')
 

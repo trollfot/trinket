@@ -163,10 +163,8 @@ class Websocket(WebsocketPrototype):
         upgrade_response = await self.socket.recv(8096)
         self.protocol.receive_bytes(upgrade_response)
         event = next(self.protocol.events())
-        if isinstance(event, ConnectionEstablished):
-            print('WebSocket negotiation complete')
-        else:
-            raise Exception('Expected ConnectionEstablished event!')
+        if not isinstance(event, ConnectionEstablished):
+            raise Exception('Websocket handshake failed.')
 
 
 class LiveClient:
@@ -187,7 +185,7 @@ class LiveClient:
 
     @asynccontextmanager
     async def query(self, method, uri, headers: dict=None, body=None):
-        
+
         conn = http.client.HTTPConnection(*self.server.sockaddr)
 
         def execute(method, uri, headers, body):

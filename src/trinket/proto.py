@@ -5,7 +5,7 @@ from typing import Tuple, Callable
 from trinket.response import Response
 
 
-class Application:
+class Application(ABC):
     """Trinket application abstraction.
     """
 

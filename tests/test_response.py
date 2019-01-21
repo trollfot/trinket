@@ -86,7 +86,7 @@ def test_json_response():
 
 def test_json_errors():
     with pytest.raises(TypeError):
-        response = Response.json(object())
+        Response.json(object())
 
 
 def test_html_response():
