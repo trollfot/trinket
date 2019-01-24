@@ -13,8 +13,8 @@ from urllib.parse import urlencode
 from trinket.app import Trinket
 from trinket.server import Server
 from trinket.websockets import WebsocketPrototype
-from wsproto.connection import WSConnection, CLIENT
-from wsproto.events import ConnectionEstablished
+from wsproto import WSConnection, ConnectionType
+from wsproto.events import Request, AcceptConnection
 
 
 class MockWriteSocket:
@@ -149,21 +149,20 @@ class RequestForger:
 
 class Websocket(WebsocketPrototype):
 
-    def __init__(self, host, path):
+    def __init__(self):
         super().__init__()
-        self.host = host
         self.socket = curio.socket.socket(
             curio.socket.AF_INET, curio.socket.SOCK_STREAM)
-        self.protocol = WSConnection(CLIENT, host, path)
+        self.protocol = WSConnection(ConnectionType.CLIENT)
 
-    async def connect(self, host, port):
+    async def connect(self, path, host, port):
         await self.socket.connect((host, port))
-        data = self.protocol.bytes_to_send()
-        await self.socket.sendall(data)
+        request = Request(host=f'{host}:{port}', target=path)
+        await self.socket.sendall(self.protocol.send(request))
         upgrade_response = await self.socket.recv(8096)
-        self.protocol.receive_bytes(upgrade_response)
+        self.protocol.receive_data(upgrade_response)
         event = next(self.protocol.events())
-        if not isinstance(event, ConnectionEstablished):
+        if not isinstance(event, AcceptConnection):
             raise Exception('Websocket handshake failed.')
 
 
@@ -201,8 +200,8 @@ class LiveClient:
 
     @asynccontextmanager
     async def websocket(self, resource):
-        ws = Websocket('{}:{}'.format(*self.server.sockaddr), resource)
-        await ws.connect(*self.server.sockaddr)
+        ws = Websocket()
+        await ws.connect(resource, *self.server.sockaddr)
         task = await curio.spawn(ws.flow)
         yield ws
         try:

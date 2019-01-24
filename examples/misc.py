@@ -5,6 +5,7 @@ from trinket import Trinket, Response
 from trinket.response import file_iterator
 from trinket.extensions import logger
 
+
 bauble = logger(Trinket())
 
 
@@ -55,6 +56,5 @@ async def chat(request, websocket):
         for ws in bauble.websockets:
             if ws is not websocket:
                 await ws.send(msg)
-
 
 bauble.start()

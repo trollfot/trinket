@@ -13,7 +13,7 @@ from trinket.server import Server
 from trinket.websockets import Websocket
 
 
-class Trinket(Application):
+class Trinket(Application, dict):
 
     __slots__ = (
         'hooks', 'routes', 'websockets', 'server')
