@@ -3,7 +3,7 @@ from curio.io import Socket
 from trinket.request import Channel
 from trinket.response import response_handler
 from trinket.http import HTTPError
-from typing import Tuple, Callable
+from typing import Callable
 
 
 async def request_handler(app: Callable, client: Socket, *args):

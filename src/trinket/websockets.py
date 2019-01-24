@@ -4,10 +4,8 @@ from trinket.http import HTTPStatus, HTTPError
 from wsproto import WSConnection, ConnectionType
 from wsproto.connection import ConnectionState
 from wsproto.utilities import RemoteProtocolError
-from wsproto.extensions import PerMessageDeflate
 from wsproto.events import (
-    Request, AcceptConnection, CloseConnection,
-    Message, TextMessage, BytesMessage, Ping)
+    Request, AcceptConnection, CloseConnection, Message, Ping)
 
 
 class WebsocketClosedError(Exception):
@@ -70,7 +68,7 @@ class WebsocketPrototype(ABC):
             except StopIteration:
                 # Connection dropped unexpectedly
                 return await self.closing.set()
-                
+
             if isinstance(event, CloseConnection):
                 self.closure = event
                 await self.outgoing.put(event.response())
@@ -85,7 +83,7 @@ class WebsocketPrototype(ABC):
 
             if event is None or self.protocol.state is ConnectionState.CLOSED:
                 return await self.closing.set()
-                
+
             data = self.protocol.send(event)
             try:
                 await self.socket.sendall(data)
@@ -100,7 +98,7 @@ class WebsocketPrototype(ABC):
             incoming = await ws.spawn(self._handle_incoming)
             outgoing = await ws.spawn(self._handle_outgoing)
             finished = await ws.next_done()
-            
+
             if finished is incoming:
                 await self.outgoing.put(None)
                 await outgoing.join()
