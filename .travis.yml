@@ -9,4 +9,4 @@ install:
   - pip install -U -e .[test]
 
 script:
-  - pytest tests/
+  - pytest -v tests/
