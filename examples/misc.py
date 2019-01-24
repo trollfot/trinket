@@ -5,7 +5,7 @@ from trinket import Trinket, Response
 from trinket.response import file_iterator
 from trinket.extensions import logger
 
-bauble = Trinket()
+bauble = logger(Trinket())
 
 
 @bauble.route('/')
@@ -13,8 +13,8 @@ async def hello(request):
     return Response.raw(b'Hello World !')
 
 
-@bauble.route('/feed', methods=['POST'])
-async def feed(request):
+@bauble.route('/raw', methods=['POST'])
+async def raw(request):
     return Response.raw(b'You got here')
 
 
@@ -32,7 +32,7 @@ async def ignore(request):
 
 
 @bauble.route('/hello/full/with/{one}/and/{two}')
-async def json(request, one, two):    
+async def json(request, one, two):
     response = Response.json({
         'parameters': f'{one} and {two}',
         'query': request.query.get('query'),
@@ -50,7 +50,7 @@ async def serve_websocket(request):
 
 
 @bauble.websocket('/chat')
-async def feed(request, websocket):
+async def chat(request, websocket):
     async for msg in websocket:
         for ws in bauble.websockets:
             if ws is not websocket:

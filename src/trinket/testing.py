@@ -11,6 +11,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 
 from trinket.app import Trinket
+from trinket.server import Server
 from trinket.websockets import WebsocketPrototype
 from wsproto.connection import WSConnection, CLIENT
 from wsproto.events import ConnectionEstablished
@@ -162,29 +163,30 @@ class Websocket(WebsocketPrototype):
         upgrade_response = await self.socket.recv(8096)
         self.protocol.receive_bytes(upgrade_response)
         event = next(self.protocol.events())
-        if isinstance(event, ConnectionEstablished):
-            print('WebSocket negotiation complete')
-        else:
-            raise Exception('Expected ConnectionEstablished event!')
+        if not isinstance(event, ConnectionEstablished):
+            raise Exception('Websocket handshake failed.')
 
 
 class LiveClient:
 
-    def __init__(self, app: Trinket, port: int=42000):
+    task = None
+
+    def __init__(self, server: Server, app: Trinket):
         self.app = app
-        self.port = port
-        self.task = None
+        self.server = server
 
     async def __aenter__(self):
-        self.task = await curio.spawn(self.app.serve, '', self.port)
-        await curio.sleep(0.1)
+        self.task = await curio.spawn(self.server.serve, self.app)
+        await self.server.ready.wait()
 
     async def __aexit__(self, *args, **kwargs):
         await self.task.cancel()
+        self.task = None
 
     @asynccontextmanager
     async def query(self, method, uri, headers: dict=None, body=None):
-        conn = http.client.HTTPConnection('localhost', self.port)
+
+        conn = http.client.HTTPConnection(*self.server.sockaddr)
 
         def execute(method, uri, headers, body):
             if headers is None:
@@ -199,8 +201,8 @@ class LiveClient:
 
     @asynccontextmanager
     async def websocket(self, resource):
-        ws = Websocket(f'localhost:{self.port}', resource)
-        await ws.connect('localhost', self.port)
+        ws = Websocket('{}:{}'.format(*self.server.sockaddr), resource)
+        await ws.connect(*self.server.sockaddr)
         task = await curio.spawn(ws.flow)
         yield ws
         try:
@@ -217,5 +219,11 @@ def app():
 
 
 @pytest.fixture
-def client(app):
-    return LiveClient(app)
+def server():
+    # Testing locally on a free port.
+    return Server('', 0)
+
+
+@pytest.fixture
+def client(server, app):
+    return LiveClient(server, app)
