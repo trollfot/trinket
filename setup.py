@@ -17,11 +17,11 @@ install_requires = [
     ]
 
 tests_require = [
-    "pytest",
+    "pytest ",
     ]
 
 setup(name='trinket',
-      version='0.1.3',
+      version='0.1.4dev0',
       description="Curio-based web framework",
       long_description="%s\n\n%s" % (
           read('README.rst'), read(path.join('docs', 'HISTORY.rst'))),

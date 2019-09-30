@@ -1,1 +1,2 @@
+pytest==5.2.0
 asyncwebsockets==0.3.0 
