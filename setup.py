@@ -17,7 +17,7 @@ install_requires = [
     ]
 
 tests_require = [
-    "pytest ",
+    "pytest == 5.2.0",
     ]
 
 setup(name='trinket',
