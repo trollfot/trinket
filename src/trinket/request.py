@@ -156,14 +156,19 @@ class Request(dict):
             raise NotImplementedError(f"Don't know how to parse {disposition}")
         content_parser = parser_type(self.content_type)
         next(content_parser)
-        if self.body:
-            content_parser.send(self.body)
+        try:
+            if self.body:
+                content_parser.send(self.body)
 
-        async for data in self._reader:
-            content_parser.send(data)
-
-        self.form, self.files = next(content_parser)
-        content_parser.close()
+            async for data in self._reader:
+                content_parser.send(data)
+        except Exception as exc:
+            # do log
+            raise
+        else:
+            self.form, self.files = next(content_parser)
+        finally:
+            content_parser.close()
 
     @property
     def cookies(self):

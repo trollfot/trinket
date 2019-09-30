@@ -2,6 +2,8 @@ import pytest
 from trinket.request import Channel
 from trinket.http import HTTPError
 from trinket.testing import RequestForger
+from trinket.parsers.multipart import read_multipart
+from trinket.parsers.urlencoded import read_urlencoded
 from io import BytesIO
 
 
@@ -11,6 +13,69 @@ def parser():
 
 
 pytestmark = pytest.mark.curio
+
+
+def test_urlencoded_generator():
+    parser = read_urlencoded('form/urlencoded')
+    next(parser)
+    parser.send(b'site=http%3A%2F%2Fwww.google.')
+    parser.send(b'com&content=This+is+some+content')
+    form, files = next(parser)
+    parser.close()
+    assert form == {
+        b'site': [b'http://www.google.com'],
+        b'content': [b'This is some content']
+    }
+    assert files == {}
+
+
+def test_faulty_urlencoded_generator():
+    parser = read_urlencoded('form/urlencoded')
+    next(parser)
+    parser.send(b'site')
+    with pytest.raises(HTTPError):
+        form, files = next(parser)
+    parser.close()
+
+
+def test_multipart_generator():
+    multipart_lines = (
+        b'--foofoo\r\n',
+        b'Content-Disposition: form-data; name=baz; filename="baz.png"\r\n',
+        b'Content-Type: image/png\r\n',
+        b'\r\n',
+        b'abcdef\r\n',
+        b'--foofoo\r\n',
+        b'Content-Disposition: form-data; name="text1"\r\n',
+        b'\r\n',
+        b'abc\r\n--foofoo--')
+
+    parser = read_multipart('multipart/form-data; boundary=foofoo')
+    next(parser)
+    for line in multipart_lines:
+        parser.send(line)
+
+    form, files = next(parser)
+    parser.close()
+
+    assert form.get('text1') == 'abc'
+    assert files.get('baz').read() == b'abcdef'
+
+
+def test_faulty_multipart_generator():
+    multipart_lines = (
+        b'--foobar\r\n',
+        b'Content-Disposition: form\r\n',
+        b'Content-Type: image/png\r\n',
+        b'--foofoo\r\n',
+        b'Content-Disposition: form-data; name="text1"\r\n',
+        b'abc\r\n--foofoo--')
+
+    parser = read_multipart('multipart/form-data; boundary=foofoo')
+    next(parser)
+    with pytest.raises(HTTPError):
+        for line in multipart_lines:
+            parser.send(line)
 
 
 async def test_parse_multipart(parser):
