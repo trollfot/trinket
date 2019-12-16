@@ -2,6 +2,11 @@
 Changelog
 *********
 
+0.1.4 (2019-12-16)
+==================
+
+* Dependencies maintenance : bumping versions to latest stable.
+
 0.1.3 (2019-01-24)
 ==================
 
