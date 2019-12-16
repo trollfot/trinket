@@ -1,2 +1,2 @@
-pytest==5.2.0
-asyncwebsockets==0.3.0 
+pytest==5.3.2
+asyncwebsockets==0.5.2
