@@ -146,7 +146,9 @@ class Request(dict):
     @property
     async def raw_body(self):
         async for data in self._reader:
-            self.body += data
+            # Everything ends up in self.body due to the
+            # parsing feeding the on_body.
+            pass
         return self.body
 
     async def parse_body(self):
@@ -161,6 +163,10 @@ class Request(dict):
                 content_parser.send(self.body)
 
             async for data in self._reader:
+                # This will populate self.body
+                # It can be a problem for large requests.
+                # we might want to do something like : self.body = b''
+                # at each iteration.
                 content_parser.send(data)
         except Exception as exc:
             # do log

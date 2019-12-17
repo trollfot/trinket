@@ -2,6 +2,12 @@
 Changelog
 *********
 
+0.1.5 (2019-12-18)
+==================
+
+* Fixed body duplication on raw_body calls, due to the concatenation
+  already happening in on_body, triggered by the reader.
+
 0.1.4 (2019-12-16)
 ==================
 
