@@ -12,7 +12,7 @@ class MyTrinket(Trinket):
     async def on_error(self, http_code, message):
         if http_code == 404:
             message = "This route does not exist, i'm so sorry."
-        raise HTTPError(http_code, message)
+        return await super().on_error(http_code, message)
 
 
 bauble = logger(MyTrinket())
