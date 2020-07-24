@@ -30,7 +30,7 @@ class Trinket(Application, dict):
         If you need an async log or report or whatever, this is the
         place to do it.
         """
-        raise HTTPError(HTTPStatus.NOT_FOUND, message)
+        raise HTTPError(http_code, message)
 
     async def lookup(self, request: Request):
         payload, params = self.routes.match(request.path)
